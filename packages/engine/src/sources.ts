@@ -1,5 +1,5 @@
-import type { RunParams, HourWx } from './types';
-import { plumeRise } from './briggs';
+import type { RunParams, HourWx } from './types.js';
+import { plumeRise } from './briggs.js';
 
 /* ย้ายมาจาก smoke-plume-studio-lasted.html บรรทัด 441-478 (prep)
    พร้อมค่าคงที่บรรทัด 413-415, 417 ซึ่ง prep เป็นผู้ใช้เพียงรายเดียว */

@@ -1,6 +1,6 @@
-import type { RunParams, RunResult } from './types';
-import { sigmas } from './briggs';
-import { prep, type Prepared } from './sources';
+import type { RunParams, RunResult } from './types.js';
+import { sigmas } from './briggs.js';
+import { prep, type Prepared } from './sources.js';
 
 /* ย้ายมาจาก smoke-plume-studio-lasted.html บรรทัด 480-517 (concAt) และ 519-587 (run)
    พร้อมค่าคงที่บรรทัด 416 ซึ่ง concAt เป็นผู้ใช้เพียงรายเดียว

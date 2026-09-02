@@ -10,8 +10,8 @@
     "node": ">=20"
   },
   "scripts": {
+    "pretypecheck": "npm run build -w mokhwan-engine",
     "typecheck": "tsc --noEmit -p packages/engine && tsc --noEmit -p tsconfig.check.json",
-    "pretest": "npm run build -w mokhwan-engine",
     "test": "npm run typecheck && vitest run",
     "test:watch": "vitest"
   },

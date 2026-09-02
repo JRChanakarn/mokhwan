@@ -1,7 +1,7 @@
-import type { RunParams, RunResult } from './types';
-import { sigmas } from './briggs';
-import { prep } from './sources';
-import { windField, makeSampler } from './wind';
+import type { RunParams, RunResult } from './types.js';
+import { sigmas } from './briggs.js';
+import { prep } from './sources.js';
+import { windField, makeSampler } from './wind.js';
 
 /* ย้ายมาจาก smoke-plume-studio-lasted.html บรรทัด 691-856 โดยไม่แก้ตรรกะ
 

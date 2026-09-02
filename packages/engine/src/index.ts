@@ -1,13 +1,13 @@
-import type { RunParams, RunResult } from './types';
-import { runGauss } from './gaussian';
-import { runPuff } from './puff';
+import type { RunParams, RunResult } from './types.js';
+import { runGauss } from './gaussian.js';
+import { runPuff } from './puff.js';
 
-export * from './types';
-export { sigmas, plumeRise } from './briggs';
-export { boxBlur, windField, makeSampler } from './wind';
-export { prep } from './sources';
-export { concAt, runGauss } from './gaussian';
-export { runPuff } from './puff';
+export * from './types.js';
+export { sigmas, plumeRise } from './briggs.js';
+export { boxBlur, windField, makeSampler } from './wind.js';
+export { prep } from './sources.js';
+export { concAt, runGauss } from './gaussian.js';
+export { runPuff } from './puff.js';
 
 /**
  * จุดเข้าหลัก — เลือกแบบจำลองตาม P.model

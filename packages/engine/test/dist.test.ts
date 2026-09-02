@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
-import { CASES, summarise, BG } from './fixtures';
+import { ALL_CASES, summarise, BG } from './fixtures';
 import expected from './golden.expected.json';
 
 /**
@@ -10,15 +10,19 @@ import expected from './golden.expected.json';
  * `pretest` ของ root สั่ง build ก่อนทุกครั้ง จึงไม่มีกรณีที่ dist ไม่มีอยู่
  */
 describe('dist — ของที่ publish ต้องให้ผลเท่ากับซอร์ส', () => {
-  it('esm build ให้ผลตรงค่าอ้างอิงทุกเคส gaussian', async () => {
+  it('esm build ให้ผลตรงค่าอ้างอิงทุกเคส ทั้ง gaussian และ puff', async () => {
     const dist = await import('../dist/index.js');
-    for (const name of Object.keys(CASES) as (keyof typeof CASES)[]) {
+    // ต้องวน ALL_CASES ไม่ใช่ CASES — CASES มีแต่ gaussian ส่วนโหมด puff
+    // (runPuff + windField 229 บรรทัด ก้อนเสี่ยงสุดที่ Task 2 ย้าย) อยู่ใน PUFF_CASES
+    // ถ้าวนแค่ CASES การถูก bundler ตัดทิ้งเฉพาะสาย puff จะผ่านเทสต์เขียว
+    for (const name of Object.keys(ALL_CASES) as (keyof typeof ALL_CASES)[]) {
       const want = (expected as any)[name];
-      const got = summarise(dist.run(structuredClone(CASES[name])), BG);
+      const got = summarise(dist.run(structuredClone(ALL_CASES[name])), BG);
       const rel = Math.abs((got.maxGrid.max - want.maxGrid.max) / want.maxGrid.max);
       expect(rel, `${name}.maxGrid.max`).toBeLessThan(1e-10);
       expect(got.maxGrid.over, `${name}.maxGrid.over`).toBe(want.maxGrid.over);
       expect(got.perHour.length, `${name}.perHour.length`).toBe(want.perHour.length);
+      expect(got.model, `${name}.model`).toBe(want.model);
     }
   });
 
@@ -38,7 +42,7 @@ describe('dist — ของที่ publish ต้องให้ผลเท�
     for (const k of ['run', 'runPuff', 'windField', 'sigmas', 'plumeRise'] as const)
       expect(typeof mod[k], `umd ขาด export: ${k}`).toBe('function');
     // ต้องให้ผลเท่ากับ esm ด้วย ไม่ใช่แค่มีฟังก์ชันครบ
-    const got = summarise(mod.run(structuredClone(CASES.dawnF)), BG);
+    const got = summarise(mod.run(structuredClone(ALL_CASES.dawnF)), BG);
     const want = (expected as any).dawnF;
     expect(Math.abs((got.maxGrid.max - want.maxGrid.max) / want.maxGrid.max)).toBeLessThan(1e-10);
   });

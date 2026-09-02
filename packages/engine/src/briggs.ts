@@ -1,4 +1,4 @@
-import type { Stability } from './types';
+import type { Stability } from './types.js';
 
 /* ย้ายมาจาก smoke-plume-studio-lasted.html บรรทัด 419-438 โดยไม่แก้สูตร
    คง var ไว้ตามเดิม การเปลี่ยนเป็น const/let จดไว้ใน BACKLOG */

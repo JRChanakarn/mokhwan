@@ -1,4 +1,4 @@
-import type { HourWx, WindField } from './types';
+import type { HourWx, WindField } from './types.js';
 
 /* ย้ายมาจาก smoke-plume-studio-lasted.html บรรทัด 597-610 (boxBlur),
    616-677 (windField), 679-689 (makeSampler)

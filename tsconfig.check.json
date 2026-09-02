@@ -11,6 +11,7 @@
   },
   "include": [
     "packages/*/test/**/*.ts",
+    "packages/*/vite.config.ts",
     "*.ts"
   ]
 }
