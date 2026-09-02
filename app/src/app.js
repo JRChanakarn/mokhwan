@@ -4,6 +4,7 @@ import L from 'leaflet';
 import * as d3 from 'd3';
 import { run as engineRunSync } from 'mokhwan-engine';
 import EngineWorker from 'mokhwan-engine/worker?worker';
+import { loadDem } from './services/dem.js';
 
 'use strict';
 const $ = id => document.getElementById(id);
@@ -345,6 +346,17 @@ async function runSim(){
     model: S.model,                                     // 'gauss' | 'puff' (ก้าว 5)
   };
 
+  // โหมดภูมิประเทศต้องมี DEM — ดึงไม่ได้ก็ยังคำนวณต่อบนพื้นราบพร้อมป้ายบอก (fail-safe)
+  if(S.model === 'puff'){
+    S.dem = {loading:true}; renderPanel();
+    const dem = await loadDem(origin, payload.grid);
+    if(payload.reqId !== reqSeq) return;               // มีคำขอใหม่แซงระหว่างดึง ทิ้งของนี้
+    S.dem = dem;
+    if(dem.ok) payload.elev = dem.elev;
+  }else{
+    S.dem = null;
+  }
+
   S.computing = true; S.progress = null; renderPanel();
   const res = await engineRun(payload);
   if(res.reqId !== reqSeq) return;
@@ -611,6 +623,7 @@ async function fetchOsm(){
 
 /* ---------------- panel ---------------- */
 function renderPanel(){
+  renderDemStatus();
   const el = $('pbody');
   if(S.computing && !S.result){
     const pg = S.progress ? ' ชั่วโมง ' + S.progress.h + '/' + S.progress.nH : '';
@@ -1452,6 +1465,22 @@ $('bdate').onchange = () => {
 $('btime').onchange = () => { S.time = $('btime').value; schedule(); };
 $('bdur').oninput   = () => { S.dur = Math.max(1, Math.min(12, +$('bdur').value||1)); S.hourIndex = 0; schedule(); };
 
+/* สถานะ DEM ใต้ปุ่มเลือกแบบจำลอง — แหล่ง · ความละเอียด · ต่างระดับ · Froude รายชั่วโมง */
+function renderDemStatus(){
+  const el = $('demstat'); if(!el) return;
+  if(S.model !== 'puff'){ el.innerHTML = ''; return; }
+  const d = S.dem;
+  if(!d){ el.innerHTML = '<div class="hint">ยังไม่ได้ดึงข้อมูลความสูง — วางแปลงเผาเพื่อเริ่ม</div>'; return; }
+  if(d.loading){ el.innerHTML = '<div class="hint"><span class="spin"></span> กำลังดึงข้อมูลความสูงภูมิประเทศ…</div>'; return; }
+  if(!d.ok){ el.innerHTML = '<div class="warnbox">' + d.reason + '<br>คำนวณแบบพื้นราบแทน</div>'; return; }
+  const m = d.meta;
+  let fr = '';
+  if(S.result && S.result.model === 'puff')
+    fr = ' · Froude ' + S.result.perHour.map(h => h.Fr == null ? '–' : (h.Fr >= 99 ? '∞' : h.Fr.toFixed(2))).join(', ');
+  el.innerHTML = '<div class="hint">ความสูงจาก ' + (m.source === 'terrarium' ? 'AWS Terrain Tiles' : 'Open-Meteo') +
+    ' · ' + fmt(m.resM, 0) + ' ม./จุด · ต่างระดับในโดเมน ' + fmt(m.relief, 0) + ' ม.' + fr +
+    (m.cached ? ' · จาก cache' : '') + '</div>';
+}
 function setModel(m){
   S.model = m;
   $('mGauss').setAttribute('aria-pressed', m==='gauss');

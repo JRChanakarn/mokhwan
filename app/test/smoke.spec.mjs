@@ -17,6 +17,7 @@
  * host ภายนอกตัวไหนบ้าง ซึ่งเป็นการตรวจที่แข็งกว่าการ grep หาชื่อ CDN
  */
 import { chromium } from 'playwright-core';
+import { readFileSync } from 'node:fs';
 
 const APP_URL = process.env.APP_URL ?? 'http://localhost:5180/?debug';
 const APP_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -207,13 +208,41 @@ const puffRes = await page.evaluate(() => {
            note: document.getElementById('modelnote').textContent };
 });
 check(puffRes.model === 'puff' && puffRes.type === undefined, `สลับเป็น puff แล้วได้ผลจากโมเดล puff (ไม่ใช่ข้อความ progress)`);
-check(puffRes.terrain === false, 'ยังไม่มี DEM จึงเป็น puff บนพื้นราบ (terrain=false)');
+// เน็ตภายนอกถูก stub ด้วย PNG 1×1 → ไทล์ผิดขนาด → สำรองก็ได้ PNG แทน JSON → ล้มทั้งคู่
+// นี่คือเกณฑ์ข้อ 6 ของ HANDOFF: API ล่มต้องไม่พัง แอปต้องคำนวณต่อบนพื้นราบพร้อมป้ายบอกภาษาไทย
+check(puffRes.terrain === false, 'DEM ดึงไม่ได้ (เน็ตถูกบล็อก) → puff บนพื้นราบ terrain=false แอปไม่พัง');
+const demFail = await page.evaluate(() => ({ ok: window.__MOKHWAN__.S.dem?.ok, txt: document.getElementById('demstat').textContent }));
+check(demFail.ok === false && /ดึงข้อมูลความสูงไม่ได้/.test(demFail.txt) && /พื้นราบ/.test(demFail.txt),
+  `ป้ายสถานะ DEM บอกเหตุผลภาษาไทยและว่าคำนวณแบบพื้นราบแทน`);
 check(puffRes.peak > 10 && puffRes.peak < 10_000, `พีค puff อยู่ในย่านที่สมเหตุสมผล: ${puffRes.peak.toFixed(1)} µg/m³`);
 check(puffRes.pressed === 'true' && /puff/i.test(puffRes.note), 'ปุ่มและคำอธิบายสะท้อนโหมด puff');
 
 await page.click('#mGauss');
 await page.waitForFunction(() => window.__MOKHWAN__.S.result && window.__MOKHWAN__.S.result.model === undefined, { timeout: 30_000 });
 check(await page.evaluate(() => window.__MOKHWAN__.S.model === 'gauss'), 'สลับกลับเป็น gauss ได้');
+
+/* ── DEM สำเร็จ: เสิร์ฟไทล์ terrarium ปลอม (แอ่งกลางไทล์) ─────────────────── */
+const TERRARIUM_PNG = readFileSync(new URL('./fixtures/terrarium-basin.png', import.meta.url));
+await page.unroute('**/*');
+await page.route('**/*', route => {
+  const u = new URL(route.request().url());
+  if (APP_HOSTS.has(u.hostname)) return route.continue();
+  externalHosts.set(u.hostname, (externalHosts.get(u.hostname) ?? 0) + 1);
+  if (/elevation-tiles-prod\/terrarium\//.test(u.pathname)) return route.fulfill({ status: 200, contentType: 'image/png', body: TERRARIUM_PNG });
+  return route.fulfill({ status: 200, contentType: 'image/png', body: BLANK_PNG });
+});
+await page.click('#mPuff');
+await page.waitForFunction(() => window.__MOKHWAN__.S.result?.model === 'puff' && window.__MOKHWAN__.S.result.perHour[0].terrain === true, { timeout: 45_000 });
+const demOk = await page.evaluate(() => {
+  const M = window.__MOKHWAN__, r = M.S.result;
+  return { src: M.S.dem?.meta?.source, relief: r.perHour[0].relief, Fr: r.perHour[0].Fr, peak: r.perHour[0].max,
+           zoom: M.S.dem?.meta?.zoom, tiles: M.S.dem?.meta?.tiles, txt: document.getElementById('demstat').textContent };
+});
+check(demOk.src === 'terrarium', `DEM มาจาก terrarium (zoom ${demOk.zoom} · ${demOk.tiles} ไทล์)`);
+check(demOk.relief > 100, `เอนจินได้ภูมิประเทศจริง relief ${demOk.relief?.toFixed(0)} ม.`);
+check(Number.isFinite(demOk.Fr) && demOk.Fr < 99, `Froude ถูกคำนวณจาก DEM (${demOk.Fr?.toFixed(3)})`);
+check(demOk.peak > 1, `puff บนภูมิประเทศให้ค่าที่พื้นไม่เป็นศูนย์ (${demOk.peak?.toFixed(1)} µg/m³)`);
+check(/AWS Terrain Tiles/.test(demOk.txt) && /Froude/.test(demOk.txt), 'ป้ายสถานะ DEM แสดงแหล่ง ความละเอียด ต่างระดับ และ Froude');
 
 /* ── การโหลดของภายนอก ───────────────────────────────────────────────── */
 
