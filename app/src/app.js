@@ -5,6 +5,7 @@ import * as d3 from 'd3';
 import { run as engineRunSync } from 'mokhwan-engine';
 import EngineWorker from 'mokhwan-engine/worker?worker';
 import { loadDem } from './services/dem.js';
+import { showTerrain, clearTerrain } from './map2d/terrain.js';
 
 'use strict';
 const $ = id => document.getElementById(id);
@@ -422,6 +423,12 @@ function refresh(){
   const disp = currentGrid();
   S.stats = computeStats(disp);
   drawOverlay(disp);
+  // ภูมิประเทศใต้ควัน — เฉพาะเมื่อผลปัจจุบันมาจาก puff บน DEM จริง (HANDOFF ข้อ 3)
+  if(S.result.model === 'puff' && S.dem && S.dem.ok && S.origin){
+    const r = S.result;
+    showTerrain(map, {L, elev:S.dem.elev, grid:{N:r.N, R:r.R, cx:r.cx, cy:r.cy}, origin:S.origin, toLL,
+                      minZ:S.dem.meta.minZ, maxZ:S.dem.meta.maxZ});
+  }else clearTerrain(map);
   highlightHour();
   redrawRecs();
   renderPanel();
@@ -434,6 +441,7 @@ function clearOverlay(){
   if(rasterL){ map.removeLayer(rasterL); rasterL = null; }
   if(axisL){ map.removeLayer(axisL); axisL = null; }
   gCont.clearLayers();
+  clearTerrain(map);
 }
 function bandOf(v){
   for(let b=BANDS.length-1;b>=0;b--) if(v >= BANDS[b].lo) return b;

@@ -63,5 +63,5 @@ packages/engine  (เพิ่มอย่างเดียว) run(P, hooks?) 
 |---|---|---|
 | A ✅ | hooks ในเอนจิน + worker ส่ง progress + ปุ่มเลือกโหมด + `payload.model` (ยังไม่มี DEM = puff บนพื้นราบ) | golden เขียวเท่าเดิม · `hooks.test.ts` · smoke กด `#mPuff` แล้วได้ `model:'puff'` |
 | B ✅ | `dem-math.js` + เทสต์ node · `dem.js` ดึงจริง + fallback + cache · ต่อเข้า `runSim` · สถานะ DEM | unit บริสุทธิ์ · smoke ที่ route() บล็อก terrarium แล้วแอปยังทำงาน (เกณฑ์ 6) |
-| C | `terrain.js` hillshade + เส้นชั้นความสูงใต้ควัน | เกณฑ์ 4 · ภาพจริงใน Dia |
+| C ✅ | `terrain.js` hillshade + เส้นชั้นความสูงใต้ควัน | เกณฑ์ 4 · ภาพจริงใน Dia |
 | D | เผาในแอ่งเชียงใหม่เช้ามืด ควันไม่ปีนดอยสุเทพ (เกณฑ์ 3) · ไทม์ไลน์ลื่นไม่คำนวณใหม่ (เกณฑ์ 5) | เช็คด้วยตา + smoke |

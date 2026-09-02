@@ -244,6 +244,24 @@ check(Number.isFinite(demOk.Fr) && demOk.Fr < 99, `Froude ถูกคำนว�
 check(demOk.peak > 1, `puff บนภูมิประเทศให้ค่าที่พื้นไม่เป็นศูนย์ (${demOk.peak?.toFixed(1)} µg/m³)`);
 check(/AWS Terrain Tiles/.test(demOk.txt) && /Froude/.test(demOk.txt), 'ป้ายสถานะ DEM แสดงแหล่ง ความละเอียด ต่างระดับ และ Froude');
 
+// HANDOFF ข้อ 3 / เกณฑ์ 4: โหมด 2D เห็นภูมิประเทศพร้อมชั้นควัน และภูมิประเทศต้องอยู่ *ใต้* ควัน
+const terr = await page.evaluate(() => {
+  const pane = document.querySelector('.leaflet-terrain-pane');   // createPane('terrainPane') → คลาส leaflet-terrain-pane (Leaflet ตัดคำ Pane)
+  const overlay = document.querySelector('.leaflet-overlay-pane');
+  const hill = pane?.querySelector('img');
+  const cvs = pane?.querySelector('canvas');
+  return { pane: !!pane, z: pane ? +getComputedStyle(pane).zIndex : null, zOverlay: overlay ? +getComputedStyle(overlay).zIndex : null,
+           hill: !!hill && hill.getAttribute('src')?.startsWith('data:image/'), contours: !!cvs && cvs.width > 0 };
+});
+check(terr.pane && terr.hill, 'มี hillshade ภูมิประเทศใน pane ของตัวเอง');
+check(terr.contours, 'มีเส้นชั้นความสูงวาดใน pane เดียวกัน');
+check(terr.z !== null && terr.zOverlay !== null && terr.z < terr.zOverlay, `ภูมิประเทศอยู่ใต้ควัน (zIndex ${terr.z} < ${terr.zOverlay})`);
+
+// สลับกลับพื้นราบ → ภูมิประเทศต้องหาย
+await page.click('#mGauss');
+await page.waitForFunction(() => window.__MOKHWAN__.S.result && window.__MOKHWAN__.S.result.model === undefined, { timeout: 30_000 });
+check(await page.evaluate(() => !document.querySelector('.leaflet-terrain-pane img')), 'กลับโหมดพื้นราบแล้วภูมิประเทศหายไป');
+
 /* ── การโหลดของภายนอก ───────────────────────────────────────────────── */
 
 const mlBefore = await page.evaluate(() =>
