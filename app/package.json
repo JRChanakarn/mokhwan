@@ -14,6 +14,7 @@
     "mokhwan-engine": "*"
   },
   "devDependencies": {
-    "vite": "6.0.7"
+    "vite": "6.0.7",
+    "vite-plugin-singlefile": "^2.1.0"
   }
 }

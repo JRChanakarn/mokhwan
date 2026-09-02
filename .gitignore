@@ -4,6 +4,7 @@
 # deps / build
 node_modules/
 dist/
+dist-single/
 *.tsbuildinfo
 
 # playwright
