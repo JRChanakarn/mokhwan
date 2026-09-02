@@ -14,3 +14,6 @@ playwright-report/
 # smoke-plume-studio-lasted.html ทุกตัวอักษร จึงไม่ต้องเก็บซ้ำใน git
 files/
 files.zip
+
+# workspace ของ subagent-driven-development (scratch)
+.superpowers/

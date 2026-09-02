@@ -210,7 +210,7 @@ Expected: พิมพ์ `เขียน tmp/eng.cjs · export: run, runPuff, 
 ค่าทุกตัวมาจากโค้ดจริงในไฟล์ตั้งต้น ไม่ได้คิดขึ้นเอง
 
 - `FUELS.rice = {load: 0.60, ef: 9.5, cc: 0.89}` (บรรทัด 871)
-- `addPlot` ตั้ง `moist: 0.35` เป็นค่าปริยาย (บรรทัด 1400 ของไฟล์เดิม)
+- `addPlot` ตั้ง `moist: 0.35` เป็นค่าปริยาย (บรรทัด 1399 ของไฟล์ตั้งต้น)
 - `RAI = 1600` ตร.ม. · `S.bg = 25` · `S.avg = 60` · `S.rangeKm = 10` · `S.res = 180` · `S.depo = true`
 - `buildFires` แตกแปลงจุดเป็นตะแกรง 5×5 ระยะห่าง `side/5`
 - `hourWeights(n)` ให้ `w[i] = exp(-1.6·(i+0.5)/n)` แล้ว normalize · `p[i] = (i+0.5)/n`
@@ -227,7 +227,7 @@ Expected: พิมพ์ `เขียน tmp/eng.cjs · export: run, runPuff, 
 export const RAI = 1600;               // ตร.ม. ต่อไร่
 export const RICE = { load: 0.60, ef: 9.5, cc: 0.89, moist: 0.35 };
 
-/** สร้างแปลงจุดแบบเดียวกับ buildFires() ในไฟล์ตั้งต้น บรรทัด 277–305 */
+/** สร้างแปลงจุดแบบเดียวกับ buildFires() — บรรทัด 277–305 ของบล็อกแอป (= 1142–1170 ของไฟล์ตั้งต้น) */
 function ricePointFire(rai: number) {
   const areaM2 = rai * RAI;
   const side = Math.sqrt(areaM2);
@@ -245,7 +245,7 @@ function ricePointFire(rai: number) {
   };
 }
 
-/** เหมือน hourWeights() ในไฟล์ตั้งต้น บรรทัด 244–249 */
+/** เหมือน hourWeights() — บรรทัด 244–249 ของบล็อกแอป (= 1109–1114 ของไฟล์ตั้งต้น) */
 function hourWeights(n: number) {
   const w: number[] = [], p: number[] = [];
   let s = 0;
@@ -256,7 +256,7 @@ function hourWeights(n: number) {
   return { w: w.map(v => v / s), p };
 }
 
-/** เวกเตอร์หน่วยทิศท้ายลม — สูตรเดียวกับ runSim() บรรทัด 325 */
+/** เวกเตอร์หน่วยทิศท้ายลม — สูตรเดียวกับ runSim() — บรรทัด 325 ของบล็อกแอป (= 1190 ของไฟล์ตั้งต้น) */
 function downwind(hours: { wdir: number }[]) {
   let ux = 0, uy = 0;
   for (const h of hours) {
@@ -1043,8 +1043,11 @@ export default defineConfig({
 
 - [ ] **Step 4: ติดตั้ง Vite ที่ root**
 
-Run: `npm install -D vite@6.0.7 -w mokhwan-engine`
+Run: `npm install -D vite@6.0.7`
 Expected: ติดตั้งสำเร็จ
+
+ลงที่ root ไม่ใช่ `-w mokhwan-engine` เพราะ Vitest 3 ที่ root ก็ใช้ Vite อยู่แล้ว
+แยกลงในแพ็กเกจจะได้ Vite สองเวอร์ชันในต้นไม้เดียว
 
 - [ ] **Step 5: build**
 
@@ -1123,6 +1126,12 @@ MSG
 - Create: `app/src/styles.css`
 - Create: `app/src/app.js`
 - Modify: `packages/engine/package.json` (ไม่ต้อง — `exports["./worker"]` ทำใน Task 2 แล้ว)
+
+**หากฎ anchor ด้วยเนื้อหา ไม่ใช่เลขบรรทัด**
+
+เลขบรรทัดในทุก step ของ task นี้เป็น**ตัวช่วยหา** ไม่ใช่คำสั่ง `app/src/app.js` ถูกยกมา
+จากบรรทัด 866 จึงมีเลขต่างจากไฟล์ตั้งต้น 865 บรรทัด ให้ `grep -n` หาด้วยข้อความจริงทุกครั้ง
+แล้วแก้ที่นั่น ถ้า grep ไม่เจอข้อความที่ระบุ **ให้หยุดและรายงาน** ห้ามเดาตำแหน่ง
 
 **Interfaces:**
 - Consumes:
@@ -1231,6 +1240,17 @@ import { run as engineRunSync } from 'mokhwan-engine';
 import EngineWorker from 'mokhwan-engine/worker?worker';
 ```
 
+**`mokhwan-engine/worker?worker` เป็นรูปแบบที่ยังไม่ยืนยัน** (สเปก §8 เตือนไว้) — การต่อ
+`?worker` ข้ามขอบแพ็กเกจไปที่ `.ts` ในอีก workspace อาจให้ Vite resolve ไม่ได้
+ถ้า `npm run dev -w app` ขึ้น error เรื่อง resolve บรรทัดนี้ **ให้เปลี่ยนเป็นทางถอยนี้แล้วไปต่อ**
+ไม่ต้องหยุดถาม
+
+```js
+import EngineWorker from '../../packages/engine/src/worker.ts?worker';
+```
+
+แล้วบันทึกไว้ใน `BACKLOG.md` (Task 5) ว่าใช้ทางถอย เพราะมันกระทบคนที่จะ `npm i` แพ็กเกจนี้ไปใช้
+
 `import L from 'leaflet'` ทำให้ตัวแปร `L` อยู่ใน module scope — การอ้าง `L.` ทั้ง 30 จุด
 และ `map.` ทั้ง 32 จุดใช้ได้ตามเดิมโดยไม่ต้องแก้
 
@@ -1306,7 +1326,7 @@ function engineRun(payload){
 `maplibregl` ถูกอ้าง 4 จุด ทั้งหมดอยู่ในโค้ด 3D — โหลดตอนกดปุ่ม 3D เท่านั้น
 เพื่อไม่ให้ bundle แรกแบก ~800 KB (สเปก §13)
 
-เพิ่มบรรทัดนี้ใกล้ๆ `let m3 = null, is3D = false, m3ready = false;` (เดิมบรรทัด 1546)
+เพิ่มบรรทัดนี้ใกล้ๆ `let m3 = null, is3D = false, m3ready = false;` (บรรทัด 1827 ของไฟล์ตั้งต้น)
 
 ```js
 let maplibregl = null;   // โหลดตอนกด 3D เท่านั้น
@@ -1469,10 +1489,14 @@ check(r.hours === 1, `ได้ผล 1 ชั่วโมง (ได้ ${r.hou
 check(r.cells === 180 * 180, `กริด 180×180 (ได้ ${r.cells})`);
 check(r.peak > 10 && r.peak < 10_000, `พีคอยู่ในย่านที่สมเหตุสมผล: ${r.peak.toFixed(1)} µg/m³`);
 
-// เปลี่ยนชั่วโมงต้องไม่คำนวณใหม่ — reqId ต้องไม่ขยับ
+// เปลี่ยนมุมมองต้องไม่คำนวณใหม่ — reqId ต้องไม่ขยับ
+// ต้องกดผ่าน DOM จริง การเซ็ต S.view ตรงๆ ไม่ได้ทริกอะไรเลย เทสต์จะผ่านฟรี
+// ให้ grep หา id ของตัวเลือกมุมมอง (max / dose / hour) ใน app/index.html
+// แล้วใส่ selector จริงแทน VIEW_SELECTOR ถ้าหาไม่เจอ ให้รายงานแล้วข้ามข้อนี้ไป
+const VIEW_SELECTOR = '__ใส่ selector จริงจาก index.html__';
 const before = await page.evaluate(() => window.__MOKHWAN__.S.result.reqId);
-await page.evaluate(() => window.__MOKHWAN__.S.view = 'max');
-await page.evaluate(() => window.__MOKHWAN__.runSim === undefined);
+await page.click(VIEW_SELECTOR);
+await page.waitForTimeout(500);
 const after = await page.evaluate(() => window.__MOKHWAN__.S.result.reqId);
 check(before === after, 'เปลี่ยนมุมมองไม่ทำให้คำนวณใหม่');
 
