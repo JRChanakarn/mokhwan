@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="th">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mokhwan Studio — จำลองการฟุ้งกระจายควันจากการเผา</title>
+
+<div id="app">
+<aside id="rail">
+  <div id="brand">
+    <h1>Mokhwan Studio</h1>
+    <p>จำลองการฟุ้งกระจาย PM2.5 จากการเผาในที่โล่ง
+       <span id="ver" style="display:inline-block;margin-left:4px;padding:1px 6px;border:1px solid var(--line);border-radius:3px;font-size:10.5px;color:var(--faint)"></span></p>
+  </div>
+  <div id="rbody">
+
+    <section class="g">
+      <div class="gh"><h2>แปลงที่จะเผา</h2><span class="tag" id="totarea"></span></div>
+      <div id="plots"></div>
+      <div class="seg" role="group">
+        <button id="mPoint" aria-pressed="true">คลิกวางจุด</button>
+        <button id="mPoly" aria-pressed="false">วาดกรอบแปลง</button>
+      </div>
+      <p class="hint" id="mhint"></p>
+      <div class="btnrow" style="margin-top:8px">
+        <button class="btn" id="bFinish" style="display:none;flex:1">ปิดรูป</button>
+        <button class="btn gh2" id="bUndo" style="display:none">ถอยจุด</button>
+      </div>
+    </section>
+
+    <section class="g" id="plotEditor" style="display:none">
+      <div class="gh"><h2>เชื้อเพลิงของแปลงที่เลือก</h2></div>
+      <div class="row"><select id="fuel"></select></div>
+      <div class="row"><label for="rai">ขนาดพื้นที่</label><input id="rai" type="number" min="0.25" step="0.25"><span class="u">ไร่</span></div>
+      <div class="row"><label for="load">เชื้อเพลิงต่อไร่</label><input id="load" type="number" min="0.05" max="12" step="0.05"><span class="u">ตัน</span></div>
+      <div class="row"><label for="ef">ปล่อย PM2.5</label><input id="ef" type="number" min="0.5" max="40" step="0.1"><span class="u">ก./กก.</span></div>
+      <div class="row"><label for="cc">ไหม้จริง</label><input id="cc" type="number" min="0.1" max="1" step="0.01"><span class="u">0–1</span></div>
+      <div class="row"><label for="moist">ความชื้นเชื้อเพลิง</label><span class="u" id="moisttxt" style="min-width:60px;text-align:right">ปานกลาง</span></div>
+      <input id="moist" type="range" min="0" max="0.85" step="0.05">
+      <p class="hint">ยิ่งชื้น ยิ่งคุกรุ่นมาก ควันส่วนที่คุกรุ่นแทบไม่ลอยขึ้น มันเลาะไปตามพื้นและเป็นต้นเหตุหลักของค่าฝุ่นระดับหายใจ</p>
+    </section>
+
+    <section class="g">
+      <div class="gh"><h2>ช่วงเวลาเผา</h2></div>
+      <div class="row"><label>วันที่</label><input id="bdate" type="date"></div>
+      <div class="row"><label>เริ่มเวลา</label><input id="btime" type="time" step="3600"></div>
+      <div class="row"><label for="bdur">เผานาน</label><input id="bdur" type="number" min="1" max="12" step="1" value="3"><span class="u">ชม.</span></div>
+      <p class="hint">การปล่อยควันจะหนักที่สุดในชั่วโมงแรกแล้วค่อยลดลง ส่วนสัดส่วนควันคุกรุ่นจะเพิ่มขึ้นตามเวลา</p>
+    </section>
+
+    <section class="g">
+      <div class="gh"><h2>สภาพอากาศ</h2><span class="tag" id="wxsrc"></span></div>
+      <div class="seg" role="group">
+        <button id="wAuto" aria-pressed="true">พยากรณ์จริง</button>
+        <button id="wMan" aria-pressed="false">กำหนดเอง</button>
+      </div>
+      <div id="wxAuto">
+        <button class="btn w" id="bFetchWx" style="margin-top:9px">ดึงพยากรณ์อากาศของจุดนี้</button>
+        <div id="wxStatus"></div>
+      </div>
+      <div id="wxMan" style="display:none">
+        <div class="row" style="margin-top:10px"><label>ลมพัดมาจาก</label>
+          <span class="u" id="wdtxt" style="min-width:76px;text-align:right"></span></div>
+        <input id="wdir" type="range" min="0" max="355" step="5">
+        <div class="row"><label>ความเร็วลม</label><span class="u" id="wstxt" style="min-width:76px;text-align:right"></span></div>
+        <input id="wspd" type="range" min="0.3" max="12" step="0.1">
+        <div class="row"><label for="stab">ความเสถียร</label><select id="stab" style="width:auto;flex:1"></select></div>
+        <div class="row"><label for="mix">ชั้นผสมสูง</label><input id="mix" type="number" min="50" max="4000" step="25"><span class="u">ม.</span></div>
+      </div>
+      <div class="row" style="margin-top:10px"><label for="bg">PM2.5 พื้นหลัง</label>
+        <input id="bg" type="number" min="0" max="400" step="1"><span class="u">µg/m³</span></div>
+      <label class="chk"><input type="checkbox" id="bgAuto">
+        <span>ใช้ค่าพื้นหลังรายชั่วโมงจริง<br><span class="sub2">Open-Meteo Air Quality · ได้มาพร้อมพยากรณ์</span></span></label>
+    </section>
+
+    <section class="g">
+      <div class="gh"><h2>ชั้นข้อมูลอากาศจริง</h2><span class="tag" id="wltag"></span></div>
+      <div id="netnote"></div>
+      <label class="chk"><input type="checkbox" id="lyWind">
+        <span>สนามลมเคลื่อนไหว<br><span class="sub2">Open-Meteo · เลื่อนตามชั่วโมงที่เลือก</span></span></label>
+      <label class="chk"><input type="checkbox" id="lyRadar">
+        <span>เรดาร์ฝน<br><span class="sub2">RainViewer · ย้อนหลัง 2 ชม. ถึงล่วงหน้า 30 นาที</span></span></label>
+      <label class="chk"><input type="checkbox" id="lySat">
+        <span>ภาพอินฟราเรดจากดาวเทียม<br><span class="sub2">RainViewer · เห็นกลุ่มเมฆรายสิบนาที</span></span></label>
+      <label class="chk"><input type="checkbox" id="lyGibs">
+        <span>ภาพถ่ายดาวเทียมของวันนั้น<br><span class="sub2">NASA GIBS · VIIRS สีจริง รายวัน</span></span></label>
+      <label class="chk"><input type="checkbox" id="lyFire">
+        <span>จุดความร้อนไฟ VIIRS<br><span class="sub2">NASA GIBS · ดูว่ารอบข้างมีใครเผาอยู่</span></span></label>
+      <div class="row" style="margin-top:8px"><label for="wlopa">ความทึบชั้นอากาศ</label></div>
+      <input id="wlopa" type="range" min="0.15" max="1" step="0.05" value="0.7">
+      <p class="hint">เรดาร์และภาพอินฟราเรดจะขยับตามชั่วโมงในไทม์ไลน์เท่าที่ข้อมูลมีจริง ถ้าชั่วโมงที่เลือกอยู่นอกช่วงที่ RainViewer เก็บไว้ จะแสดงเฟรมที่ใกล้ที่สุดและบอกเวลาจริงกำกับไว้</p>
+    </section>
+
+    <section class="g">
+      <div class="gh"><h2>จุดอ่อนไหวรอบพื้นที่</h2><span class="tag" id="rectag"></span></div>
+      <div class="row"><label for="recrad">ค้นในรัศมี</label>
+        <input id="recrad" type="number" min="1" max="30" step="1" value="8"><span class="u">กม.</span></div>
+      <button class="btn w" id="bOsm">ดึงโรงเรียน โรงพยาบาล และหมู่บ้านจาก OpenStreetMap</button>
+      <div id="osmStatus"></div>
+      <button class="btn w gh2" id="bManualRec" style="margin-top:6px">ปักหมุดจุดเองบนแผนที่</button>
+    </section>
+
+    <section class="g">
+      <div class="gh"><h2>การคำนวณ</h2></div>
+      <div class="row"><label for="range">ขอบเขต</label><select id="range" style="width:auto;flex:1">
+        <option value="3">3 กม.</option><option value="5">5 กม.</option><option value="10" selected>10 กม.</option>
+        <option value="20">20 กม.</option><option value="40">40 กม.</option></select></div>
+      <div class="row"><label for="res">ความละเอียด</label><select id="res" style="width:auto;flex:1">
+        <option value="120">หยาบ · เร็ว</option><option value="180" selected>กลาง</option>
+        <option value="260">ละเอียด · ช้า</option></select></div>
+      <div class="row"><label for="pop">ประชากรเฉลี่ย</label><input id="pop" type="number" min="0" max="30000" step="10" value="180"><span class="u">คน/กม²</span></div>
+      <div class="row"><label for="opa">ความทึบชั้นควัน</label></div>
+      <input id="opa" type="range" min="0.15" max="1" step="0.05" value="0.6">
+      <div class="row" style="margin-top:6px"><label for="depo">คิดการตกสะสมและฝนชะ</label>
+        <input id="depo" type="checkbox" checked style="width:auto"></div>
+    </section>
+
+    <section class="g">
+      <div class="gh"><h2>ส่งออกและบันทึก</h2></div>
+      <div class="btnrow"><button class="btn" style="flex:1" id="bCsv">ตาราง CSV</button>
+        <button class="btn" style="flex:1" id="bGeo">GeoJSON</button></div>
+      <div class="btnrow" style="margin-top:6px"><button class="btn" style="flex:1" id="bSave">บันทึกงาน</button>
+        <button class="btn" style="flex:1" id="bLoad">เปิดงาน</button></div>
+      <input id="fileIn" type="file" accept=".json" style="display:none">
+      <button class="btn w gh2" id="bReset" style="margin-top:6px">ล้างทั้งหมด</button>
+      <p class="hint">แบบจำลอง Gaussian plume ระดับคัดกรอง สมมติพื้นราบและลมคงที่ในแต่ละชั่วโมง ไม่คิดการไหลลงร่องเขาตอนกลางคืน ใช้เปรียบเทียบทางเลือกได้ดี แต่ไม่ใช่ค่าตรวจวัดจริง</p>
+    </section>
+
+  </div>
+</aside>
+
+<main id="stage">
+  <div id="map"></div>
+  <div id="map3d"></div>
+  <div id="m3diag"></div>
+  <div id="tilewarn"></div>
+
+  <div id="d3bar">
+    <button class="btn" id="bAlign" title="หันกล้องไปตามทิศที่ควันลอย">หันตามควัน</button>
+    <label>ยกภูมิประเทศ <b id="exagtxt">1.5×</b></label>
+    <input id="exag" type="range" min="1" max="3" step="0.1" value="1.5">
+    <label>ยกความสูงควัน <b id="pexagtxt">4×</b></label>
+    <input id="pexag" type="range" min="1" max="12" step="0.5" value="4">
+    <label>ความทึบควัน <b id="smokeopatxt">55%</b></label>
+    <input id="smokeopa" type="range" min="0.1" max="1" step="0.05" value="0.55">
+    <label class="chk" style="padding:0"><input type="checkbox" id="showGroundLayer" checked> ทาบชั้นควันบนพื้น</label>
+    <div style="color:var(--faint);font-size:10.8px;margin-top:7px;line-height:1.45">
+      ความสูงควันถูกยกไว้เพื่อให้มองเห็น ตัวเลขจริงดูได้ในแท็บรายชั่วโมง</div>
+  </div>
+
+  <div id="toolsLeft">
+    <button class="btn" id="bFit">พอดีพื้นที่</button>
+    <div class="seg" id="dimseg" style="background:rgba(20,27,37,.95);backdrop-filter:blur(6px)">
+      <button id="b2d" aria-pressed="true">2D</button>
+      <button id="b3d" aria-pressed="false">3D</button>
+    </div>
+  </div>
+  <div id="viewbar" role="group" aria-label="มุมมองผล">
+    <button id="vHour" aria-pressed="true">รายชั่วโมง</button>
+    <button id="vMax" aria-pressed="false">พีคสูงสุด</button>
+    <button id="vDose" aria-pressed="false">เฉลี่ย 24 ชม.</button>
+  </div>
+
+  <div id="toolsTop">
+    <div id="swrap"><input id="search" type="search" placeholder="ค้นหาตำบล อำเภอ สถานที่" autocomplete="off"><div id="sres"></div></div>
+    <select id="basesel" aria-label="แผนที่ฐาน"></select>
+    <button class="btn" id="bGeoloc">ตำแหน่งฉัน</button>
+  </div>
+
+  <div id="wlbadge"></div>
+  <div id="legend"><div class="h" id="legh">PM2.5 (µg/m³)</div><div id="legrows"></div></div>
+
+  <div id="panel">
+    <div id="ptabs" role="tablist">
+      <button id="tSum" aria-pressed="true">สรุป</button>
+      <button id="tRec" aria-pressed="false">จุดอ่อนไหว</button>
+      <button id="tMet" aria-pressed="false">รายชั่วโมง</button>
+    </div>
+    <div id="pbody"></div>
+  </div>
+
+  <div id="timeline">
+    <div id="tlhead">
+      <button class="btn play" id="bPlay" title="เล่นไทม์ไลน์ (เว้นวรรค)">▶</button>
+      <button class="btn play" id="bStepB" title="ถอยหนึ่งชั่วโมง">‹</button>
+      <button class="btn play" id="bStepF" title="เดินหน้าหนึ่งชั่วโมง">›</button>
+      <b id="tltitle">08:00 น.</b>
+      <span class="sp"></span>
+      <label for="tlspeed" style="color:var(--dim)">ความเร็ว</label>
+      <select id="tlspeed">
+        <option value="1600">ช้า</option>
+        <option value="900" selected>ปกติ</option>
+        <option value="450">เร็ว</option>
+      </select>
+      <label style="color:var(--dim);display:flex;align-items:center;gap:4px">
+        <input type="checkbox" id="tlloop" checked style="width:auto"> วนซ้ำ</label>
+      <span id="tlmeta" style="color:var(--dim)"></span>
+    </div>
+    <div id="tltrack"></div>
+  </div>
+</main>
+</div>
+
+<script type="module" src="/src/app.js"></script>
+</html>
