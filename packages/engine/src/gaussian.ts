@@ -1,4 +1,4 @@
-import type { RunParams, RunResult } from './types.js';
+import type { RunParams, RunResult, RunHooks } from './types.js';
 import { sigmas } from './briggs.js';
 import { prep, type Prepared } from './sources.js';
 
@@ -52,7 +52,7 @@ export function concAt(C: Prepared, px: number, py: number): number {
 }
 
 /** โหมดพื้นราบ — เดิมชื่อ run() */
-export function runGauss(P: RunParams): RunResult {
+export function runGauss(P: RunParams, hooks?: RunHooks): RunResult {
   var N = P.grid.N, R = P.grid.R, cx = P.grid.cx, cy = P.grid.cy;
   var cell = 2*R/N, nH = P.hours.length, K = N*N;
   var maxG = new Float32Array(K), doseG = new Float32Array(K);
@@ -96,6 +96,7 @@ export function runGauss(P: RunParams): RunResult {
                   max:hourMax, maxDist:hourMaxD, Hfl:C.Hfl, Hsm:C.Hsm,
                   qFl:C.qFl, qSm:C.qSm, uFl:C.uFl, uSm:C.uSm, sy0:C.sy0, tf:C.tf,
                   capped:C.capped, share:P.weights[h]});
+    hooks?.onProgress?.(h+1, nH);
   }
 
   // ทิศลมเฉลี่ยตลอดการเผา

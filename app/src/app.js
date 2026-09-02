@@ -47,6 +47,7 @@ const S = {
   bg:25, bgAuto:false, bgSeries:null, avg:60, rangeKm:10, res:180, pop:180, opacity:0.6, depo:true,
   view:'hour', hourIndex:0, tab:'sum',
   result:null, origin:null, computing:false,
+  model:'gauss', dem:null, progress:null,   // ก้าว 5: โหมดแบบจำลอง · DEM ที่โหลดได้ · ความคืบหน้ารายชั่วโมง
 };
 (function initDate(){
   const d = new Date();
@@ -147,14 +148,23 @@ try{ worker = new EngineWorker(); }catch(err){ worker = null; }
 
 let reqSeq = 0, pendingResolve = null;
 if(worker){
-  worker.onmessage = ev => { if(pendingResolve){ const r = pendingResolve; pendingResolve = null; r(ev.data); } };
+  worker.onmessage = ev => {
+    const d = ev.data;
+    if(d && d.type === 'progress'){                     // ความคืบหน้าจาก worker (ดู engine/worker.ts)
+      if(d.reqId === reqSeq){ S.progress = {h:d.h, nH:d.nH}; renderPanel(); }
+      return;
+    }
+    if(pendingResolve){ const r = pendingResolve; pendingResolve = null; r(d); }
+  };
   worker.onerror = () => { worker = null; };
 }
 function engineRun(payload){
   if(worker){
     return new Promise(res => { pendingResolve = res; worker.postMessage(payload); });
   }
-  return Promise.resolve(engineRunSync(payload));
+  return Promise.resolve(engineRunSync(payload, {
+    onProgress: (h, nH) => { if(payload.reqId === reqSeq){ S.progress = {h, nH}; renderPanel(); } },
+  }));
 }
 
 /* ---------------- weather ---------------- */
@@ -332,9 +342,10 @@ async function runSim(){
     grid: {N: S.res, R, cx: 0.32*R*ux, cy: 0.32*R*uy},
     receptors: S.receptors.map(r => toXY(r.ll, origin)),
     bg: S.bg, avg: S.avg, depo: S.depo, reqId: ++reqSeq,
+    model: S.model,                                     // 'gauss' | 'puff' (ก้าว 5)
   };
 
-  S.computing = true; renderPanel();
+  S.computing = true; S.progress = null; renderPanel();
   const res = await engineRun(payload);
   if(res.reqId !== reqSeq) return;
   S.computing = false;
@@ -601,7 +612,10 @@ async function fetchOsm(){
 /* ---------------- panel ---------------- */
 function renderPanel(){
   const el = $('pbody');
-  if(S.computing && !S.result){ el.innerHTML = '<div class="hint"><span class="spin"></span> กำลังคำนวณ…</div>'; return; }
+  if(S.computing && !S.result){
+    const pg = S.progress ? ' ชั่วโมง ' + S.progress.h + '/' + S.progress.nH : '';
+    el.innerHTML = '<div class="hint"><span class="spin"></span> กำลังคำนวณ…' + pg + '</div>'; return;
+  }
   if(!S.result){ el.innerHTML = '<div class="hint">วางแปลงเผาบนแผนที่เพื่อเริ่มจำลอง</div>'; return; }
   if(S.tab === 'sum') renderSummary(el);
   else if(S.tab === 'rec') renderRecs(el);
@@ -1438,6 +1452,15 @@ $('bdate').onchange = () => {
 $('btime').onchange = () => { S.time = $('btime').value; schedule(); };
 $('bdur').oninput   = () => { S.dur = Math.max(1, Math.min(12, +$('bdur').value||1)); S.hourIndex = 0; schedule(); };
 
+function setModel(m){
+  S.model = m;
+  $('mGauss').setAttribute('aria-pressed', m==='gauss');
+  $('mPuff').setAttribute('aria-pressed', m==='puff');
+  $('modelnote').textContent = m==='puff'
+    ? 'Lagrangian puff บนสนามลมที่ถูกภูมิประเทศเบน — ช้ากว่า และต้องดึงข้อมูลความสูงก่อน'
+    : 'Gaussian plume บนพื้นราบ — เร็ว ใช้เปรียบเทียบทางเลือกได้ทันที';
+  schedule();
+}
 function setWxMode(m){
   S.wxMode = m;
   $('wAuto').setAttribute('aria-pressed', m==='auto');
@@ -1447,6 +1470,8 @@ function setWxMode(m){
   if(m==='man') $('wxsrc').textContent = 'กำหนดเอง';
   schedule();
 }
+$('mGauss').onclick = () => setModel('gauss');
+$('mPuff').onclick  = () => setModel('puff');
 $('wAuto').onclick = () => setWxMode('auto');
 $('wMan').onclick  = () => setWxMode('man');
 $('bFetchWx').onclick = fetchWeather;
@@ -1564,6 +1589,7 @@ function syncAllInputs(){
   $('wdtxt').textContent = S.man.wdir + '° ' + compass(S.man.wdir);
   $('wstxt').textContent = fmt(S.man.ws,1) + ' ม./วิ';
   setWxMode(S.wxMode);
+  setModel(S.model);
 }
 
 /* ---------------- boot ---------------- */
@@ -1582,5 +1608,5 @@ setWxStatus('ยังไม่ได้ดึงข้อมูล — วา�
    วิธีทดสอบ UI ที่ HANDOFF เขียนไว้ (page.evaluate เรียก S / addPlot ตรงๆ) จะพังทันที
    จึงเปิดช่องทางที่ตั้งใจไว้ ใช้ได้ตอน dev หรือใส่ ?debug ใน URL */
 if(import.meta.env.DEV || new URLSearchParams(location.search).has('debug')){
-  window.__MOKHWAN__ = { S, addPlot, setWxMode, syncAllInputs, runSim, engineRun, map };
+  window.__MOKHWAN__ = { S, addPlot, setWxMode, setModel, syncAllInputs, runSim, engineRun, map };
 }

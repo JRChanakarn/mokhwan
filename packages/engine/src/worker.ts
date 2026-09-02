@@ -1,5 +1,5 @@
 import { run } from './index.js';
-import type { RunParams } from './types.js';
+import type { RunParams, ProgressMessage } from './types.js';
 
 /**
  * glue ของ Web Worker — ตรรกะเดียวกับบรรทัด 1006 ของ smoke-plume-studio-lasted.html
@@ -17,5 +17,14 @@ import type { RunParams } from './types.js';
  * เธรดหลักได้เลย ผลลัพธ์เหมือนกันทุกกรณี
  */
 self.onmessage = (e: MessageEvent<RunParams>) => {
-  self.postMessage(run(e.data));
+  const P = e.data;
+  // ส่งความคืบหน้าทุกชั่วโมงก่อนผลสุดท้าย ฝั่งรับแยกด้วย data.type === 'progress'
+  // (RunResult ไม่มีฟิลด์ type จึงไม่ชนกัน) และเทียบ reqId เพื่อทิ้งของคำขอเก่า
+  const res = run(P, {
+    onProgress: (h, nH) => {
+      const msg: ProgressMessage = { type: 'progress', h, nH, reqId: P.reqId };
+      self.postMessage(msg);
+    },
+  });
+  self.postMessage(res);
 };

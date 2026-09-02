@@ -1,4 +1,4 @@
-import type { RunParams, RunResult } from './types.js';
+import type { RunParams, RunResult, RunHooks } from './types.js';
 import { runGauss } from './gaussian.js';
 import { runPuff } from './puff.js';
 
@@ -23,7 +23,7 @@ export { runPuff } from './puff.js';
  * ย้าย dispatch มาไว้ที่นี่เพื่อตัด cycle gaussian <-> puff
  * (เดิม run() ใน gaussian เรียก runPuff() ซึ่งเรียก prep() กลับมา)
  */
-export function run(P: RunParams): RunResult {
-  if (P.model === 'puff') return runPuff(P);
-  return runGauss(P);
+export function run(P: RunParams, hooks?: RunHooks): RunResult {
+  if (P.model === 'puff') return runPuff(P, hooks);
+  return runGauss(P, hooks);
 }

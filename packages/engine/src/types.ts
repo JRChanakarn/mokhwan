@@ -114,6 +114,23 @@ export interface RunResult {
   model?:      'puff';
 }
 
+/**
+ * hook ที่ผู้เรียกส่งมาได้ (optional) — เอนจินเรียก `onProgress(hourDone, totalHours)`
+ * หลังจบแต่ละชั่วโมง ใช้ให้ UI แสดงความคืบหน้าแทนค้างเงียบ · ห้ามกระทบผลลัพธ์
+ * ส่งผ่าน postMessage ไม่ได้ (ฟังก์ชัน clone ไม่ได้) worker.ts จึงเป็นคนผูกให้เอง
+ */
+export interface RunHooks {
+  onProgress?(hourDone: number, totalHours: number): void;
+}
+
+/** ข้อความความคืบหน้าที่ worker ส่งก่อนผลสุดท้าย แยกจาก RunResult ด้วยฟิลด์ type */
+export interface ProgressMessage {
+  type: 'progress';
+  h: number;
+  nH: number;
+  reqId: number;
+}
+
 /** สนามลมวินิจฉัยที่ถูกภูมิประเทศเบนแล้ว — array ทุกตัวขนาด N×N */
 export interface WindField {
   /** องค์ประกอบลมที่ระดับพลูม (m/s) */

@@ -1,4 +1,4 @@
-import type { RunParams, RunResult } from './types.js';
+import type { RunParams, RunResult, RunHooks } from './types.js';
 import { sigmas } from './briggs.js';
 import { prep } from './sources.js';
 import { windField, makeSampler } from './wind.js';
@@ -9,7 +9,7 @@ import { windField, makeSampler } from './wind.js';
    ที่การคำนวณ σ — ดูคอมเมนต์ตรง xEff · เกณฑ์รับงานอยู่ใน test/terrain.test.ts */
 
 /** โหมดตามภูมิประเทศ — Lagrangian puff บนสนามลมวินิจฉัยจาก DEM */
-export function runPuff(P: RunParams): RunResult {
+export function runPuff(P: RunParams, hooks?: RunHooks): RunResult {
   var N = P.grid.N, R = P.grid.R, cx = P.grid.cx, cy = P.grid.cy;
   var cell = 2*R/N, nH = P.hours.length, K = N*N;
   var Z = P.elev ? new Float32Array(P.elev) : null;
@@ -168,6 +168,7 @@ export function runPuff(P: RunParams): RunResult {
                   qFl:C.qFl, qSm:C.qSm, uFl:C.uFl, uSm:C.uSm, sy0:C.sy0, tf:C.tf,
                   capped:C.capped, share:P.weights[h],
                   Fr:Fr, relief:WF.relief, terrain:!!Z});
+    hooks?.onProgress?.(h+1, nH);
   }
 
   var ux = 0, uy = 0;

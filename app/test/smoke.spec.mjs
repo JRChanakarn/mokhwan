@@ -85,7 +85,7 @@ check(await page.evaluate(() =>
 const handleKeys = await page.evaluate(() =>
   window.__MOKHWAN__ ? Object.keys(window.__MOKHWAN__) : null);
 check(Array.isArray(handleKeys), 'debug handle เปิดอยู่');
-for (const k of ['S', 'addPlot', 'setWxMode', 'syncAllInputs', 'runSim', 'engineRun', 'map'])
+for (const k of ['S', 'addPlot', 'setWxMode', 'setModel', 'syncAllInputs', 'runSim', 'engineRun', 'map'])
   check(!!handleKeys?.includes(k), `debug handle มี ${k}`);
 
 // เอนจินต้องรันในเวิร์กเกอร์จริง ไม่ใช่ถอยไปเธรดหลักแบบเงียบๆ
@@ -192,6 +192,28 @@ const afterDose = await page.evaluate(() => window.__MOKHWAN__.S.result.reqId);
 check(before === afterMax && before === afterDose,
   `เปลี่ยนมุมมองไม่ทำให้คำนวณใหม่ (reqId ${before} → ${afterMax} → ${afterDose}` +
   ` · รอเกิน debounce ${DEBOUNCE_MARGIN} ms แล้ว)`);
+
+/* ── สลับแบบจำลอง (ก้าว 5 ข้อ 4) ────────────────────────────────────── */
+
+// กดปุ่มจริง ไม่เซ็ต S.model ตรงๆ · ตอนนี้ยังไม่มี DEM จึงเป็น puff บนพื้นราบ
+// ถ้าการแยกข้อความ progress ใน onmessage ผิด promise จะถูก resolve ด้วย
+// {type:'progress'} แทนผลจริง → model จะไม่ใช่ 'puff' และ type จะโผล่ เทสต์นี้จึงจับได้ด้วย
+await page.click('#mPuff');
+await page.waitForFunction(() => window.__MOKHWAN__.S.result?.model === 'puff', { timeout: 30_000 });
+const puffRes = await page.evaluate(() => {
+  const r = window.__MOKHWAN__.S.result;
+  return { model: r.model, type: r.type, terrain: r.perHour[0].terrain, peak: r.perHour[0].max,
+           pressed: document.getElementById('mPuff').getAttribute('aria-pressed'),
+           note: document.getElementById('modelnote').textContent };
+});
+check(puffRes.model === 'puff' && puffRes.type === undefined, `สลับเป็น puff แล้วได้ผลจากโมเดล puff (ไม่ใช่ข้อความ progress)`);
+check(puffRes.terrain === false, 'ยังไม่มี DEM จึงเป็น puff บนพื้นราบ (terrain=false)');
+check(puffRes.peak > 10 && puffRes.peak < 10_000, `พีค puff อยู่ในย่านที่สมเหตุสมผล: ${puffRes.peak.toFixed(1)} µg/m³`);
+check(puffRes.pressed === 'true' && /puff/i.test(puffRes.note), 'ปุ่มและคำอธิบายสะท้อนโหมด puff');
+
+await page.click('#mGauss');
+await page.waitForFunction(() => window.__MOKHWAN__.S.result && window.__MOKHWAN__.S.result.model === undefined, { timeout: 30_000 });
+check(await page.evaluate(() => window.__MOKHWAN__.S.model === 'gauss'), 'สลับกลับเป็น gauss ได้');
 
 /* ── การโหลดของภายนอก ───────────────────────────────────────────────── */
 
