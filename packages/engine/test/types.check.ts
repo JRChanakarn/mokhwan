@@ -27,10 +27,15 @@ type KeysOfUnion<T> = T extends unknown ? keyof T : never;
 /** ฟิลด์ใน perHour ที่บันทึกไว้จริง แต่ไม่มีใน PerHour */
 type MissingPerHour = Exclude<KeysOfUnion<AnyCase['perHour'][number]>, keyof PerHour>;
 
-/** ฟิลด์ระดับบนสุดที่บันทึกไว้จริง แต่ไม่มีใน RunResult
- *  ยกเว้นคีย์ที่ summarise() คิดขึ้นเองเพื่อทำลายนิ้วมือ ไม่ใช่ของที่เอนจินคืน */
-type SummaryOnly = 'grids' | 'maxGrid' | 'doseGrid';
-type MissingResult = Exclude<Exclude<KeysOfUnion<AnyCase>, keyof RunResult>, SummaryOnly>;
+/**
+ * ฟิลด์ระดับบนสุดที่บันทึกไว้จริง แต่ไม่มีใน RunResult
+ *
+ * ไม่มีการยกเว้นคีย์ใดเลยโดยตั้งใจ — `summarise()` แทน `grids`/`maxGrid`/`doseGrid`
+ * ด้วยลายนิ้วมือ `GridStat` แต่**ชื่อคีย์ยังตรงกับ RunResult** ยามนี้เทียบแค่ชื่อคีย์
+ * จึงไม่ต้องยกเว้น การใส่ Exclude ตามชื่อไว้เผื่อๆ คือการเปิดช่องให้ยามเงียบ
+ * ถ้าวันหนึ่ง RunResult.grids ถูกเปลี่ยนชื่อหรือลบ (เคยมีเวอร์ชันที่ทำแบบนั้น)
+ */
+type MissingResult = Exclude<KeysOfUnion<AnyCase>, keyof RunResult>;
 
 // ถ้าฟิลด์ไหนขาด ตัวแปรข้างล่างจะ error และ **บอกชื่อฟิลด์ที่ขาดตรงๆ**
 const _perHourComplete: MissingPerHour extends never ? true : MissingPerHour = true;

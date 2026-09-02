@@ -6,7 +6,7 @@
   "engines": { "node": ">=20" },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.check.json",
-    "test": "vitest run",
+    "test": "npm run typecheck && vitest run",
     "test:watch": "vitest"
   },
   "devDependencies": {
