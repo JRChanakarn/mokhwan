@@ -1,11 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { createRequire } from 'node:module';
 import { ALL_CASES, summarise, BG, type GridStat } from './fixtures';
 import expected from './golden.expected.json';
-
-// Task 2 จะเปลี่ยนเฉพาะสองบรรทัดนี้ไปเป็น: import * as ENGINE from '../src/index';
-const require = createRequire(import.meta.url);
-const ENGINE = require('../../../tmp/eng.cjs');
+import * as ENGINE from '../src/index';
 
 const REL = 1e-10;
 

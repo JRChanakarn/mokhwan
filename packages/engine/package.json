@@ -1,0 +1,19 @@
+{
+  "name": "mokhwan-engine",
+  "version": "0.1.0",
+  "description": "เอนจินคำนวณการฟุ้งกระจาย PM2.5 จากการเผาในที่โล่ง — Gaussian plume + Lagrangian puff พร้อมสนามลมจากภูมิประเทศ",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js", "require": "./dist/index.umd.cjs" },
+    "./worker": "./src/worker.ts"
+  },
+  "files": ["dist", "src"],
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}
