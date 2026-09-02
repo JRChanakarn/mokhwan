@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+
+# deps / build
+node_modules/
+dist/
+*.tsbuildinfo
+
+# playwright
+test-results/
+playwright-report/
+
+# สำเนาซ้ำจากเซสชันก่อน — ตรวจด้วย md5 แล้วว่าไบต์ต่อไบต์เหมือน
+# smoke-plume-studio-lasted.html ทุกตัวอักษร จึงไม่ต้องเก็บซ้ำใน git
+files/
+files.zip

@@ -1,0 +1,941 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>จำลองการฟุ้งกระจายควันจากการเผา</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{
+  --ink:#0f1620;
+  --panel:#151d28;
+  --panel-2:#1c2634;
+  --line:#2b3849;
+  --line-soft:#222d3c;
+  --text:#dde5ef;
+  --text-dim:#8d9cb0;
+  --text-faint:#61708440;
+  --accent:#e8b13c;
+  --aqi1:#4aa3d8;
+  --aqi2:#5cb85c;
+  --aqi3:#e8c33a;
+  --aqi4:#ef8a3c;
+  --aqi5:#e04b4b;
+  --aqi6:#8f4bc9;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  background:var(--ink);
+  color:var(--text);
+  font-family:"IBM Plex Sans Thai","Noto Sans Thai","Sarabun","Leelawadee UI",Tahoma,-apple-system,sans-serif;
+  font-size:14px;
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+button,input,select{font:inherit;color:inherit}
+
+#shell{display:flex;height:100vh;height:100dvh;overflow:hidden}
+
+/* ---------- control rail ---------- */
+#rail{
+  width:340px;flex:0 0 340px;background:var(--panel);
+  border-right:1px solid var(--line);
+  display:flex;flex-direction:column;overflow:hidden;
+}
+#railhead{padding:16px 18px 12px;border-bottom:1px solid var(--line)}
+#railhead h1{margin:0;font-size:17px;font-weight:600;letter-spacing:.01em}
+#railhead p{margin:4px 0 0;font-size:12.5px;color:var(--text-dim)}
+#railbody{overflow-y:auto;flex:1;padding:4px 18px 90px}
+
+section.grp{border-bottom:1px solid var(--line-soft);padding:14px 0}
+section.grp:last-child{border-bottom:0}
+.grp > h2{
+  margin:0 0 10px;font-size:13px;font-weight:600;color:var(--text);
+  display:flex;align-items:baseline;gap:8px;
+}
+.grp > h2 span{font-size:11.5px;color:var(--text-dim);font-weight:400}
+
+.row{display:flex;align-items:center;gap:10px;margin:9px 0}
+.row label{flex:1;font-size:13px;color:var(--text-dim)}
+.row .val{font-variant-numeric:tabular-nums;font-size:13px;min-width:64px;text-align:right;color:var(--text)}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:20px;background:transparent;cursor:pointer}
+input[type=range]::-webkit-slider-runnable-track{height:2px;background:var(--line);border-radius:2px}
+input[type=range]::-moz-range-track{height:2px;background:var(--line);border-radius:2px}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:var(--accent);margin-top:-5.5px}
+input[type=range]::-moz-range-thumb{width:13px;height:13px;border:0;border-radius:50%;background:var(--accent)}
+input[type=number],select{
+  background:var(--panel-2);border:1px solid var(--line);border-radius:4px;
+  padding:6px 8px;width:100%;
+}
+input[type=number]{width:88px;text-align:right;font-variant-numeric:tabular-nums}
+select{cursor:pointer}
+input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.seg{display:flex;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.seg button{flex:1;background:transparent;border:0;padding:8px 4px;cursor:pointer;color:var(--text-dim);font-size:13px}
+.seg button[aria-pressed=true]{background:var(--accent);color:#12181f;font-weight:600}
+.btn{
+  background:var(--panel-2);border:1px solid var(--line);border-radius:5px;
+  padding:8px 12px;cursor:pointer;font-size:13px;
+}
+.btn:hover{border-color:var(--text-dim)}
+.btn.wide{width:100%}
+.btn.ghost{background:transparent;color:var(--text-dim)}
+.hint{font-size:12px;color:var(--text-dim);margin:8px 0 0}
+
+/* wind dial */
+#winddial{display:flex;gap:14px;align-items:center}
+#dial{width:104px;height:104px;flex:0 0 104px;cursor:grab;touch-action:none}
+#dial:active{cursor:grabbing}
+#windmeta{flex:1}
+
+/* ---------- map ---------- */
+#stage{flex:1;position:relative;min-width:0}
+#map{position:absolute;inset:0;background:#0b1017}
+.leaflet-container{font-family:inherit;background:#0b1017}
+#tilewarn{
+  position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:600;
+  background:#3a2a12;border:1px solid #6b4d1c;color:#f0d9a8;
+  padding:6px 12px;border-radius:4px;font-size:12.5px;display:none;
+}
+#drawbar{
+  position:absolute;top:12px;left:12px;z-index:600;display:flex;gap:6px;
+  background:rgba(21,29,40,.94);border:1px solid var(--line);border-radius:6px;padding:6px;
+}
+#drawbar .btn{padding:6px 10px}
+#maptools{
+  position:absolute;top:12px;right:12px;z-index:600;display:flex;gap:6px;align-items:flex-start;
+}
+#maptools select,#maptools .btn{
+  background:rgba(21,29,40,.94);border:1px solid var(--line);border-radius:6px;
+  padding:7px 10px;font-size:12.8px;height:34px;
+}
+#searchwrap{position:relative}
+#search{
+  background:rgba(21,29,40,.94);border:1px solid var(--line);border-radius:6px;
+  padding:7px 11px;width:230px;height:34px;font-size:12.8px;
+}
+#search::placeholder{color:var(--text-dim)}
+#sresults{
+  position:absolute;top:38px;left:0;right:0;background:rgba(21,29,40,.98);
+  border:1px solid var(--line);border-radius:6px;overflow:hidden;display:none;
+}
+#sresults div{padding:7px 11px;font-size:12.5px;cursor:pointer;border-bottom:1px solid var(--line-soft)}
+#sresults div:last-child{border-bottom:0}
+#sresults div:hover,#sresults div.hl{background:var(--panel-2)}
+#sresults .no{cursor:default;color:var(--text-dim)}
+.dimtiles{filter:saturate(.5) brightness(.86) contrast(1.05)}
+.firemark{font-size:19px;line-height:1;filter:drop-shadow(0 0 3px #000)}
+.recmark{
+  background:#0f1620;border:1.5px solid var(--accent);color:var(--accent);
+  border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:600;
+}
+
+/* readout */
+#readout{
+  position:absolute;right:12px;bottom:12px;z-index:600;width:296px;max-height:calc(100% - 24px);
+  background:rgba(21,29,40,.96);border:1px solid var(--line);border-radius:6px;
+  overflow:auto;backdrop-filter:blur(6px);
+}
+#readout h3{margin:0;padding:11px 14px;font-size:13px;font-weight:600;border-bottom:1px solid var(--line-soft)}
+#readout .body{padding:10px 14px 14px}
+.stat{display:flex;justify-content:space-between;gap:10px;padding:4px 0;font-size:12.8px}
+.stat b{font-weight:600;font-variant-numeric:tabular-nums}
+.stat span{color:var(--text-dim)}
+.bandrow{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12.5px}
+.sw{width:11px;height:11px;flex:0 0 11px;border-radius:2px}
+.bandrow .nm{flex:1;color:var(--text-dim)}
+.bandrow .ar{font-variant-numeric:tabular-nums}
+.sep{height:1px;background:var(--line-soft);margin:10px 0}
+.note{font-size:11.8px;color:var(--text-dim);margin-top:8px;line-height:1.5}
+.empty{padding:16px 14px;color:var(--text-dim);font-size:12.8px}
+#reclist .stat b{color:var(--accent)}
+
+#legend{
+  position:absolute;left:12px;bottom:12px;z-index:600;
+  background:rgba(21,29,40,.94);border:1px solid var(--line);border-radius:6px;padding:9px 11px;
+  font-size:11.8px;
+}
+#legend .ttl{color:var(--text-dim);margin-bottom:6px}
+#legend .lrow{display:flex;align-items:center;gap:7px;padding:1.5px 0}
+
+#mobiletoggle{display:none}
+
+@media (max-width:900px){
+  #shell{flex-direction:column}
+  #rail{width:100%;flex:0 0 auto;max-height:52vh;border-right:0;border-bottom:1px solid var(--line);order:2}
+  #stage{order:1;flex:1;min-height:46vh}
+  #readout{width:auto;left:12px;right:12px;bottom:12px;max-height:44%}
+  #legend{display:none}
+  #maptools{top:auto;bottom:calc(44% + 20px);right:12px;left:12px;flex-wrap:wrap;justify-content:flex-end}
+  #searchwrap{flex:1;min-width:150px}
+  #search{width:100%}
+  #sresults{top:auto;bottom:38px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div id="shell">
+  <aside id="rail">
+    <div id="railhead">
+      <h1>จำลองควันจากการเผา</h1>
+      <p>วางจุดไฟหรือวาดกรอบพื้นที่เผาบนแผนที่ แล้วดูว่าควันไปทางไหน ไกลแค่ไหน เข้มข้นเท่าไร</p>
+    </div>
+    <div id="railbody">
+
+      <section class="grp">
+        <h2>พื้นที่เผา <span id="areatag">ยังไม่ได้กำหนด</span></h2>
+        <div class="seg" role="group" aria-label="โหมดกำหนดพื้นที่">
+          <button id="mPoint" aria-pressed="true">จุดเดียว + ขนาด</button>
+          <button id="mPoly" aria-pressed="false">วาดกรอบเอง</button>
+        </div>
+        <p class="hint" id="modehint">คลิกบนแผนที่เพื่อวางจุดไฟ แล้วกำหนดขนาดพื้นที่ด้านล่าง</p>
+        <div class="row" id="rowRai">
+          <label for="rai">ขนาดพื้นที่</label>
+          <input id="rai" type="number" min="0.5" max="20000" step="0.5" value="20">
+          <span class="val">ไร่</span>
+        </div>
+      </section>
+
+      <section class="grp">
+        <h2>เชื้อเพลิง</h2>
+        <div class="row"><select id="fuel" aria-label="ชนิดเชื้อเพลิง"></select></div>
+        <div class="row">
+          <label for="load">ปริมาณเชื้อเพลิง</label>
+          <input id="load" type="number" min="0.05" max="10" step="0.05" value="0.6">
+          <span class="val">ตัน/ไร่</span>
+        </div>
+        <div class="row">
+          <label for="ef">ค่าการปล่อย PM2.5</label>
+          <input id="ef" type="number" min="0.5" max="40" step="0.1" value="9.5">
+          <span class="val">ก./กก.</span>
+        </div>
+        <div class="row">
+          <label for="cc">สัดส่วนที่ไหม้จริง</label>
+          <input id="cc" type="number" min="0.1" max="1" step="0.01" value="0.89">
+          <span class="val">0–1</span>
+        </div>
+        <div class="row">
+          <label for="dur">ระยะเวลาเผา</label>
+          <input id="dur" type="number" min="5" max="2880" step="5" value="60">
+          <span class="val">นาที</span>
+        </div>
+        <div class="row">
+          <label for="smold">ควันช่วงคุกรุ่น</label>
+          <span class="val" id="smoldtxt">40%</span>
+        </div>
+        <input id="smold" type="range" min="0" max="0.9" step="0.05" value="0.4">
+        <p class="hint">ยิ่งเชื้อเพลิงชื้นหรือกองหนา ควันคุกรุ่นยิ่งมาก และควันส่วนนี้แทบไม่ลอยขึ้น จึงเลาะไปตามพื้น</p>
+      </section>
+
+      <section class="grp">
+        <h2>ลม</h2>
+        <div id="winddial">
+          <svg id="dial" viewBox="0 0 120 120" role="slider" aria-label="ทิศทางลม" tabindex="0"
+               aria-valuemin="0" aria-valuemax="359" aria-valuenow="45">
+            <circle cx="60" cy="60" r="52" fill="#1c2634" stroke="#2b3849"/>
+            <circle cx="60" cy="60" r="36" fill="none" stroke="#243043"/>
+            <g fill="#61708490" font-size="10" text-anchor="middle">
+              <text x="60" y="15">N</text><text x="108" y="64">E</text>
+              <text x="60" y="113">S</text><text x="12" y="64">W</text>
+            </g>
+            <g id="dialarrow">
+              <line x1="60" y1="60" x2="60" y2="18" stroke="#e8b13c" stroke-width="2.5" stroke-linecap="round"/>
+              <circle cx="60" cy="18" r="4.5" fill="#e8b13c"/>
+              <path d="M60 60 L60 96" stroke="#e8b13c" stroke-width="1.5" stroke-dasharray="3 3" opacity=".55"/>
+              <path d="M55 90 L60 100 L65 90" fill="none" stroke="#e8b13c" stroke-width="2" opacity=".8"/>
+            </g>
+            <circle cx="60" cy="60" r="3" fill="#8d9cb0"/>
+          </svg>
+          <div id="windmeta">
+            <div class="row" style="margin-top:0">
+              <label>ลมพัดมาจาก</label><span class="val" id="wdirtxt">45° NE</span>
+            </div>
+            <div class="row"><label for="wspd">ความเร็วลม</label><span class="val" id="wspdtxt">2.0 ม./วิ</span></div>
+            <input id="wspd" type="range" min="0.3" max="12" step="0.1" value="2">
+            <p class="hint" style="margin-top:2px">ลากเข็มเพื่อตั้งทิศที่ลมพัดมา ควันจะลอยไปทางตรงข้าม</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="grp">
+        <h2>สภาพอากาศ <span>ตัวแปรที่ชี้ขาดที่สุด</span></h2>
+        <div class="row"><select id="tod" aria-label="ช่วงเวลา / สภาพอากาศสำเร็จรูป"></select></div>
+        <div class="row"><label for="stab">ความเสถียรบรรยากาศ</label><select id="stab" style="width:130px"></select></div>
+        <div class="row">
+          <label for="mix">ความสูงชั้นผสม</label>
+          <input id="mix" type="number" min="50" max="4000" step="25" value="300">
+          <span class="val">เมตร</span>
+        </div>
+        <div class="row">
+          <label for="bg">PM2.5 พื้นหลัง</label>
+          <input id="bg" type="number" min="0" max="300" step="1" value="25">
+          <span class="val">µg/m³</span>
+        </div>
+      </section>
+
+      <section class="grp">
+        <h2>การแสดงผล</h2>
+        <div class="row"><label for="range">ระยะจำลอง</label><select id="range" style="width:110px">
+          <option value="2">2 กม.</option><option value="5">5 กม.</option>
+          <option value="10" selected>10 กม.</option><option value="20">20 กม.</option>
+          <option value="40">40 กม.</option></select></div>
+        <div class="row"><label for="avg">ค่าเฉลี่ยเวลา</label><select id="avg" style="width:110px">
+          <option value="10">10 นาที</option><option value="60" selected>1 ชั่วโมง</option>
+          <option value="180">3 ชั่วโมง</option></select></div>
+        <div class="row"><label for="res">ความละเอียด</label><select id="res" style="width:110px">
+          <option value="140">หยาบ (เร็ว)</option><option value="220" selected>กลาง</option>
+          <option value="320">ละเอียด (ช้า)</option></select></div>
+        <div class="row"><label for="pop">ความหนาแน่นประชากร</label>
+          <input id="pop" type="number" min="0" max="30000" step="10" value="150">
+          <span class="val">คน/กม²</span></div>
+        <div class="row"><label for="opa">ความทึบของชั้นควัน</label>
+          <input id="opa" type="range" min="0.2" max="1" step="0.05" value="0.62" style="width:120px"></div>
+      </section>
+
+      <section class="grp">
+        <h2>ตำแหน่ง</h2>
+        <div class="row"><select id="place" aria-label="ย้ายแผนที่ไปยัง"></select></div>
+        <button class="btn wide ghost" id="clearAll">ล้างทั้งหมดแล้วเริ่มใหม่</button>
+      </section>
+
+    </div>
+  </aside>
+
+  <main id="stage">
+    <div id="map"></div>
+    <div id="tilewarn">
+      โหลดภาพแผนที่ไม่ได้จากทุกแหล่ง — ตัวพรีวิวน่าจะบล็อกอยู่
+      <button class="btn" id="retryTiles" style="margin-left:8px;padding:3px 9px">ลองใหม่</button>
+      <div style="font-size:11.5px;opacity:.85;margin-top:3px">ดาวน์โหลดไฟล์ไปเปิดในเบราว์เซอร์ปกติแล้วแผนที่จะขึ้นครบ · การคำนวณและชั้นควันทำงานอยู่แล้วตอนนี้</div>
+    </div>
+    <div id="maptools">
+      <div id="searchwrap">
+        <input id="search" type="search" placeholder="ค้นหาตำบล อำเภอ หรือชื่อสถานที่" autocomplete="off">
+        <div id="sresults"></div>
+      </div>
+      <select id="basesel" aria-label="ชั้นแผนที่ฐาน"></select>
+      <button class="btn" id="btnGeo" title="ไปยังตำแหน่งของฉัน">ตำแหน่งฉัน</button>
+    </div>
+    <div id="drawbar">
+      <button class="btn" id="btnFinish" style="display:none">ปิดรูป</button>
+      <button class="btn" id="btnUndo" style="display:none">ถอยจุด</button>
+      <button class="btn" id="btnRec">วางจุดรับผลกระทบ</button>
+    </div>
+    <div id="legend">
+      <div class="ttl">PM2.5 รวม (µg/m³)</div>
+      <div id="legrows"></div>
+    </div>
+    <div id="readout">
+      <h3>ผลการจำลอง</h3>
+      <div id="rbody" class="empty">คลิกบนแผนที่เพื่อวางจุดไฟก่อน</div>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+/* =========================================================================
+   แบบจำลอง: Gaussian plume (steady-state) + Briggs dispersion coefficients
+   + Briggs buoyant plume rise + การสะท้อนที่พื้นและเพดานชั้นผสม
+   พื้นที่เผาถูกซอยเป็น sub-source หลายจุดแล้วซ้อนทับกัน (area source)
+   ========================================================================= */
+
+const RAI = 1600;                 // ตร.ม. ต่อ 1 ไร่
+const HEAT_BIOMASS = 18e6;        // J/kg ค่าความร้อนชีวมวลแห้ง
+const CONV_FRAC = 0.35;           // สัดส่วนความร้อนที่ยกตัวเป็นพลูม (ที่เหลือแผ่รังสี/ไล่ความชื้น)
+const SMOLD_HEAT = 0.06;          // ควันช่วงคุกรุ่นมีแรงยกตัวเหลือเพียงเศษเสี้ยว
+
+const FUELS = {
+  rice:    {n:'ฟางข้าว / ตอซังข้าว',      load:0.60, ef:9.5,  cc:0.89},
+  maize:   {n:'ต้นและซังข้าวโพด',          load:0.65, ef:8.0,  cc:0.85},
+  cane:    {n:'ใบอ้อย',                    load:1.20, ef:4.5,  cc:0.90},
+  forestD: {n:'ป่าเต็งรัง (ใบไม้แห้ง)',     load:0.50, ef:12.0, cc:0.85},
+  forestM: {n:'ป่าเบญจพรรณ',               load:0.80, ef:11.0, cc:0.80},
+  brush:   {n:'วัชพืช / ปรับพื้นที่',        load:0.70, ef:9.0,  cc:0.85},
+  waste:   {n:'ขยะและเศษวัสดุปนเปื้อน',     load:1.00, ef:10.0, cc:0.75},
+};
+
+const STAB = {
+  A:{n:'A – ไม่เสถียรมาก (แดดจัด ลมอ่อน)', p:0.07},
+  B:{n:'B – ไม่เสถียรปานกลาง',              p:0.07},
+  C:{n:'C – ไม่เสถียรเล็กน้อย',              p:0.10},
+  D:{n:'D – เป็นกลาง (มีเมฆ / ลมแรง)',       p:0.15},
+  E:{n:'E – เสถียรเล็กน้อย (หัวค่ำ)',        p:0.35},
+  F:{n:'F – เสถียรมาก (ดึก–เช้ามืด นิ่ง)',   p:0.55},
+};
+
+const TOD = [
+  {id:'', n:'— เลือกช่วงเวลาเพื่อตั้งค่าให้อัตโนมัติ —'},
+  {id:'dawn',  n:'เช้ามืด 05:00–08:00 · อินเวอร์ชันกดต่ำ', stab:'F', mix:180,  ws:1.0},
+  {id:'am',    n:'สาย 09:00–11:00 · เริ่มยกตัว',            stab:'C', mix:700,  ws:2.0},
+  {id:'noon',  n:'กลางวัน 12:00–15:00 · แดดจัด ผสมดี',      stab:'B', mix:1800, ws:3.0},
+  {id:'pm',    n:'เย็น 16:00–18:00 · ชั้นผสมยุบตัว',         stab:'D', mix:800,  ws:2.5},
+  {id:'night', n:'กลางคืน 19:00–04:00 · ควันกดติดพื้น',      stab:'E', mix:280,  ws:1.5},
+];
+
+const PLACES = [
+  {n:'เชียงใหม่', c:[18.7883,98.9853]}, {n:'เชียงราย', c:[19.9105,99.8406]},
+  {n:'แม่ฮ่องสอน', c:[19.3020,97.9654]}, {n:'ลำปาง', c:[18.2888,99.4909]},
+  {n:'น่าน', c:[18.7756,100.7730]},      {n:'แพร่', c:[18.1445,100.1405]},
+  {n:'ตาก / แม่สอด', c:[16.7130,98.5710]},{n:'นครสวรรค์', c:[15.7047,100.1372]},
+  {n:'ขอนแก่น', c:[16.4419,102.8360]},   {n:'อุบลราชธานี', c:[15.2286,104.8564]},
+  {n:'สุพรรณบุรี', c:[14.4745,100.1177]}, {n:'อยุธยา', c:[14.3532,100.5689]},
+  {n:'กรุงเทพฯ', c:[13.7563,100.5018]},  {n:'ราชบุรี', c:[13.5283,99.8134]},
+];
+
+// เกณฑ์ PM2.5 ของไทย (ค่าเฉลี่ย 24 ชม. มาตรฐาน 37.5 µg/m³)
+const BANDS = [
+  {lo:15,   hi:25,    c:[74,163,216],  n:'คุณภาพดี'},
+  {lo:25,   hi:37.5,  c:[92,184,92],   n:'ปานกลาง'},
+  {lo:37.5, hi:75,    c:[232,195,58],  n:'เริ่มมีผลต่อสุขภาพ'},
+  {lo:75,   hi:150,   c:[239,138,60],  n:'มีผลต่อสุขภาพ'},
+  {lo:150,  hi:350,   c:[224,75,75],   n:'อันตราย'},
+  {lo:350,  hi:1e9,   c:[143,75,201],  n:'อันตรายมาก'},
+];
+
+/* ---------------- state ---------------- */
+const S = {
+  mode:'point', fire:null, draft:[], recPlacing:false, receptors:[],
+  fuel:'rice', load:0.60, ef:9.5, cc:0.89, rai:20, dur:60,
+  smold:0.40,
+  ws:2.0, wdir:45, stab:'E', mix:300, bg:25,
+  rangeKm:10, avg:60, res:220, pop:150, opacity:0.62,
+};
+
+/* ---------------- map ---------------- */
+const map = L.map('map',{zoomControl:true, attributionControl:true}).setView([18.7883,98.9853],12);
+L.control.scale({imperial:false, position:'bottomright'}).addTo(map);
+
+const BASEMAPS = [
+  {n:'ถนนและหมู่บ้าน', url:'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+   sub:'abcd', max:20, attr:'&copy; OpenStreetMap, &copy; CARTO', dim:true},
+  {n:'OpenStreetMap', url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+   max:19, attr:'&copy; OpenStreetMap', dim:true},
+  {n:'ภาพดาวเทียม', url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+   max:19, attr:'&copy; Esri, Maxar, Earthstar Geographics', labels:true},
+  {n:'ภูมิประเทศ / เส้นชั้นความสูง', url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+   sub:'abc', max:17, attr:'&copy; OpenTopoMap (CC-BY-SA)', dim:true},
+  {n:'พื้นหลังมืด', url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+   sub:'abcd', max:20, attr:'&copy; OpenStreetMap, &copy; CARTO'},
+];
+const LABELS_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}';
+
+let baseIdx = 0, baseLayer = null, labelLayer = null, probe = null, autoTried = 0;
+const warn = ()=>document.getElementById('tilewarn');
+
+function setBase(i, manual){
+  baseIdx = i;
+  const b = BASEMAPS[i];
+  if(baseLayer) map.removeLayer(baseLayer);
+  if(labelLayer){ map.removeLayer(labelLayer); labelLayer=null; }
+
+  let ok = 0, bad = 0;
+  baseLayer = L.tileLayer(b.url, {maxZoom:b.max, subdomains:b.sub||'abc', attribution:b.attr, className:b.dim?'dimtiles':''});
+  baseLayer.on('tileload', ()=>{ if(++ok===1){ warn().style.display='none'; clearTimeout(probe); } });
+  baseLayer.on('tileerror', ()=>{ bad++; if(!manual && ok===0 && bad>=4) fallback(); });
+  baseLayer.addTo(map);
+  if(b.labels){
+    labelLayer = L.tileLayer(LABELS_URL,{maxZoom:b.max, opacity:.9}).addTo(map);
+  }
+  const sel = document.getElementById('basesel');
+  if(sel) sel.value = i;
+  clearTimeout(probe);
+  probe = setTimeout(()=>{ if(ok===0){ manual ? warn().style.display='block' : fallback(); } }, 5000);
+}
+function fallback(){
+  if(autoTried >= BASEMAPS.length-1){ warn().style.display='block'; return; }
+  autoTried++;
+  setBase((baseIdx+1) % BASEMAPS.length);
+}
+
+let overlay=null, fireLayer=null, draftLayer=null, axisLayer=null;
+const recLayer = L.layerGroup().addTo(map);
+
+/* ---------------- helpers ---------------- */
+const mPerLat = 111320;
+function mPerLon(lat){ return 111320*Math.cos(lat*Math.PI/180); }
+function toXY(ll, o){ return [ (ll.lng-o.lng)*mPerLon(o.lat), (ll.lat-o.lat)*mPerLat ]; }
+function toLL(x,y,o){ return L.latLng(o.lat + y/mPerLat, o.lng + x/mPerLon(o.lat)); }
+const fmt=(v,d=1)=>Number(v).toLocaleString('th-TH',{minimumFractionDigits:d,maximumFractionDigits:d});
+const compass=d=>['เหนือ','ตอ.เฉียงเหนือ','ตะวันออก','ตอ.เฉียงใต้','ใต้','ตต.เฉียงใต้','ตะวันตก','ตต.เฉียงเหนือ'][Math.round(((d%360)+360)%360/45)%8];
+
+function polyAreaM2(pts,o){
+  let a=0;
+  for(let i=0;i<pts.length;i++){
+    const [x1,y1]=toXY(pts[i],o), [x2,y2]=toXY(pts[(i+1)%pts.length],o);
+    a += x1*y2 - x2*y1;
+  }
+  return Math.abs(a/2);
+}
+function inPoly(x,y,ring){
+  let inside=false;
+  for(let i=0,j=ring.length-1;i<ring.length;j=i++){
+    const xi=ring[i][0], yi=ring[i][1], xj=ring[j][0], yj=ring[j][1];
+    if((yi>y)!==(yj>y) && x < (xj-xi)*(y-yi)/(yj-yi)+xi) inside=!inside;
+  }
+  return inside;
+}
+
+/* ---------------- dispersion physics ---------------- */
+function sigmas(x,st){                    // Briggs open-country, x เป็นเมตร
+  const f=1/Math.sqrt(1+1e-4*x);
+  switch(st){
+    case 'A': return [0.22*x*f, 0.20*x];
+    case 'B': return [0.16*x*f, 0.12*x];
+    case 'C': return [0.11*x*f, 0.08*x/Math.sqrt(1+2e-4*x)];
+    case 'D': return [0.08*x*f, 0.06*x/Math.sqrt(1+1.5e-3*x)];
+    case 'E': return [0.06*x*f, 0.03*x/(1+3e-4*x)];
+    default : return [0.04*x*f, 0.016*x/(1+3e-4*x)];
+  }
+}
+function plumeRise(QH,u,st){              // Briggs buoyant plume rise (m)
+  const F = 8.83e-6*QH;                   // buoyancy flux m⁴/s³
+  if(F<=0) return 0;
+  if(st==='E'||st==='F'){
+    const dTdz = st==='E'?0.02:0.035;
+    const s = 9.81/293*dTdz;
+    return 2.6*Math.pow(F/(u*s),1/3);
+  }
+  return F<55 ? 21.4*Math.pow(F,0.75)/u : 38.7*Math.pow(F,0.6)/u;
+}
+
+/* ---------------- build sub-sources ---------------- */
+function buildSources(){
+  if(!S.fire) return null;
+  const o = S.fire.origin;
+  let areaM2, pts=[];
+  if(S.fire.type==='point'){
+    areaM2 = S.rai*RAI;
+    const side=Math.sqrt(areaM2), n=5, step=side/n;
+    for(let i=0;i<n;i++) for(let j=0;j<n;j++)
+      pts.push([(i-(n-1)/2)*step, (j-(n-1)/2)*step]);
+  }else{
+    const ring = S.fire.latlngs.map(ll=>toXY(ll,o));
+    areaM2 = polyAreaM2(S.fire.latlngs,o);
+    let xs=ring.map(p=>p[0]), ys=ring.map(p=>p[1]);
+    const x0=Math.min(...xs), x1=Math.max(...xs), y0=Math.min(...ys), y1=Math.max(...ys);
+    let step = Math.max(Math.sqrt(areaM2/60), 5);
+    for(let k=0;k<6;k++){
+      pts=[];
+      for(let x=x0+step/2;x<x1;x+=step) for(let y=y0+step/2;y<y1;y+=step)
+        if(inPoly(x,y,ring)) pts.push([x,y]);
+      if(pts.length<=80 && pts.length>0) break;
+      if(pts.length===0){ pts=[[(x0+x1)/2,(y0+y1)/2]]; break; }
+      step*=1.35;
+    }
+  }
+  const side = Math.sqrt(areaM2);
+  return {pts, areaM2, side, o};
+}
+
+/* ---------------- core computation ---------------- */
+function simulate(){
+  const src = buildSources();
+  if(!src || src.pts.length===0) return null;
+
+  const areaRai = src.areaM2/RAI;
+  const fuelKg  = areaRai*S.load*1000*S.cc;      // มวลเชื้อเพลิงที่ไหม้จริง
+  const durS    = S.dur*60;
+  const emitG   = fuelKg*S.ef;                    // กรัม PM2.5 ทั้งหมด
+  const Q       = emitG/durS;                     // g/s
+  const QH      = (fuelKg/durS)*HEAT_BIOMASS*CONV_FRAC;   // W
+
+  const st = S.stab;
+  const u10 = Math.max(S.ws,0.3);
+
+  // สองเฟส: เปลวไฟ (ร้อน ลอยสูง) กับ คุกรุ่น (แรงยกตัวต่ำ ควันเลาะพื้น)
+  const fSm = Math.min(Math.max(S.smold,0),0.95);
+  let capped = false;
+  const layers = [
+    {frac:1-fSm, qh:QH*(1-fSm)},
+    {frac:fSm,   qh:QH*fSm*SMOLD_HEAT},
+  ].filter(l=>l.frac>0.001).map(l=>{
+    let h = plumeRise(l.qh,u10,st);
+    if(h > 0.9*S.mix){ h = 0.9*S.mix; capped = true; }
+    return {frac:l.frac, H:h, u:Math.max(u10*Math.pow(Math.max(h,10)/10, STAB[st].p), 0.4)};
+  });
+  const H = layers[0].H;
+  const Hsm = layers.length>1 ? layers[1].H : layers[0].H;
+  const u = layers[0].u;
+
+  // การเฉลี่ยเวลา: ค่า sigma มาตรฐาน ≈ ค่าเฉลี่ย 10 นาที
+  const tf = Math.pow(10/S.avg, 0.2);
+
+  const th = (270 - S.wdir)*Math.PI/180;
+  const ux=Math.cos(th), uy=Math.sin(th);         // เวกเตอร์ทิศที่ควันลอยไป
+  const vx=-uy, vy=ux;                            // แกนขวางลม
+
+  const L = S.mix;
+  const sy0 = src.side/4.3;                       // การกระจายเริ่มต้นจากขนาดกองไฟ
+  const q = Q/src.pts.length;
+  const P = src.pts;
+
+  function conc(px,py){                           // µg/m³ (เฉพาะจากไฟ)
+    let c=0;
+    for(let k=0;k<P.length;k++){
+      const dx=px-P[k][0], dy=py-P[k][1];
+      const x = dx*ux+dy*uy;
+      if(x<=1) continue;
+      const y = dx*vx+dy*vy;
+      let [sy,sz] = sigmas(x,st);
+      sy = Math.sqrt(sy*sy + sy0*sy0);
+      if(sz<0.1) continue;
+      const lat = Math.exp(-(y*y)/(2*sy*sy));
+      if(lat<1e-6) continue;
+      for(let li=0;li<layers.length;li++){
+        const Ly = layers[li], qi = q*Ly.frac;
+        if(sz > 1.6*L){                            // ควันผสมเต็มความสูงชั้นผสมแล้ว
+          c += qi/(Math.sqrt(2*Math.PI)*sy*Ly.u*L)*lat;
+          continue;
+        }
+        let vert = 0;
+        for(let n=-2;n<=2;n++){
+          const a=(-Ly.H+2*n*L)/sz, b=(Ly.H+2*n*L)/sz;
+          vert += Math.exp(-0.5*a*a)+Math.exp(-0.5*b*b);
+        }
+        c += qi/(2*Math.PI*Ly.u*sy*sz)*lat*vert;
+      }
+    }
+    return c*1e6*tf;
+  }
+
+  // โดเมนคำนวณ: สี่เหลี่ยมจัตุรัสรอบจุดไฟ เลื่อนไปทางท้ายลม
+  const R = S.rangeKm*1000;
+  const N = S.res;
+  const cx = 0.35*R*ux, cy = 0.35*R*uy;
+  const cell = 2*R/N;
+  const grid = new Float32Array(N*N);
+
+  let maxC=0, maxD=0;
+  for(let j=0;j<N;j++){
+    const py = cy + R - (j+0.5)*cell;
+    for(let i=0;i<N;i++){
+      const px = cx - R + (i+0.5)*cell;
+      const c = conc(px,py);
+      grid[j*N+i]=c;
+      if(c>maxC){ maxC=c; maxD=Math.hypot(px,py); }
+    }
+  }
+
+  // สถิติรายแถบ (ใช้ค่ารวมกับพื้นหลัง)
+  const cellKm2 = (cell*cell)/1e6;
+  const areas = BANDS.map(()=>0);
+  let reach=0;
+  for(let j=0;j<N;j++){
+    const py = cy + R - (j+0.5)*cell;
+    for(let i=0;i<N;i++){
+      const tot = grid[j*N+i] + S.bg;
+      for(let b=BANDS.length-1;b>=0;b--){
+        if(tot>=BANDS[b].lo){ areas[b]+=cellKm2; break; }
+      }
+      if(grid[j*N+i]+S.bg >= 37.5){
+        const px = cx - R + (i+0.5)*cell;
+        const d = px*ux+py*uy;
+        if(d>reach) reach=d;
+      }
+    }
+  }
+
+  return {grid,N,cell,cx,cy,R,conc,areas,maxC,maxD,reach,
+          Q,QH,emitG,H,Hsm,capped,u,areaRai,fuelKg,nSrc:P.length,origin:src.o,ux,uy};
+}
+
+/* ---------------- rendering ---------------- */
+function draw(res){
+  if(overlay){ map.removeLayer(overlay); overlay=null; }
+  if(axisLayer){ map.removeLayer(axisLayer); axisLayer=null; }
+  if(!res) return;
+
+  const {grid,N,cell,cx,cy,R,origin} = res;
+  const cv = document.createElement('canvas');
+  cv.width=N; cv.height=N;
+  const ctx = cv.getContext('2d');
+  const img = ctx.createImageData(N,N);
+  const d = img.data;
+  for(let k=0;k<N*N;k++){
+    const tot = grid[k]+S.bg;
+    let col=null, a=0;
+    for(let b=BANDS.length-1;b>=0;b--){
+      if(tot>=BANDS[b].lo){ col=BANDS[b].c; a=0.32+0.11*b; break; }
+    }
+    if(!col || grid[k]<0.4){ d[k*4+3]=0; continue; }
+    d[k*4]=col[0]; d[k*4+1]=col[1]; d[k*4+2]=col[2];
+    d[k*4+3]=Math.min(235, a*255*S.opacity/0.62);
+  }
+  ctx.putImageData(img,0,0);
+
+  const sw = toLL(cx-R, cy-R, origin), ne = toLL(cx+R, cy+R, origin);
+  overlay = L.imageOverlay(cv.toDataURL(), L.latLngBounds(sw,ne), {opacity:1, interactive:false});
+  overlay.addTo(map);
+
+  // เส้นแกนกลางพลูม
+  const a = toLL(0,0,origin), b = toLL(res.ux*R*1.5, res.uy*R*1.5, origin);
+  axisLayer = L.polyline([a,b],{color:'#e8b13c',weight:1,dashArray:'6 6',opacity:.7}).addTo(map);
+}
+
+function renderReadout(res){
+  const el = document.getElementById('rbody');
+  if(!res){ el.className='empty'; el.textContent='คลิกบนแผนที่เพื่อวางจุดไฟก่อน'; return; }
+  el.className='body';
+  const total = res.maxC + S.bg;
+  const pop = res.areas.slice(2).reduce((a,b)=>a+b,0)*S.pop;
+
+  let bandsHtml='';
+  BANDS.forEach((b,i)=>{
+    if(res.areas[i] < 0.005) return;
+    bandsHtml += `<div class="bandrow"><i class="sw" style="background:rgb(${b.c})"></i>
+      <span class="nm">${b.n} <span style="opacity:.6">${b.lo}${b.hi>1e8?'+':'–'+b.hi}</span></span>
+      <span class="ar">${fmt(res.areas[i],2)} กม²</span></div>`;
+  });
+
+  let recHtml='';
+  if(S.receptors.length){
+    recHtml = '<div class="sep"></div><div style="font-size:12.5px;color:var(--text-dim);margin-bottom:4px">จุดรับผลกระทบ</div><div id="reclist">';
+    S.receptors.forEach((r,i)=>{
+      const [x,y]=toXY(r,res.origin);
+      const c = res.conc(x,y)+S.bg;
+      const dist = Math.hypot(x,y)/1000;
+      recHtml += `<div class="stat"><span>จุด ${i+1} · ${fmt(dist,2)} กม.</span><b>${fmt(c,0)} µg/m³</b></div>`;
+    });
+    recHtml += '</div>';
+  }
+
+  el.innerHTML = `
+    <div class="stat"><span>อัตราปล่อย PM2.5</span><b>${fmt(res.Q,2)} g/s</b></div>
+    <div class="stat"><span>ปล่อยรวมทั้งกอง</span><b>${fmt(res.emitG/1000,1)} กก.</b></div>
+    <div class="stat"><span>เชื้อเพลิงที่ไหม้</span><b>${fmt(res.fuelKg/1000,2)} ตัน</b></div>
+    <div class="stat"><span>ควันช่วงเปลวไฟลอยสูง</span><b>${fmt(res.H,0)} ม.${res.capped?' ⚠':''}</b></div>
+    <div class="stat"><span>ควันช่วงคุกรุ่นลอยสูง</span><b>${fmt(res.Hsm,0)} ม.</b></div>
+    <div class="stat"><span>ลมที่ระดับพลูม</span><b>${fmt(res.u,1)} ม./วิ</b></div>
+    <div class="sep"></div>
+    <div class="stat"><span>จุดที่เข้มข้นสูงสุด</span><b>${fmt(total,0)} µg/m³</b></div>
+    <div class="stat"><span>อยู่ห่างจากกองไฟ</span><b>${fmt(res.maxD/1000,2)} กม.</b></div>
+    <div class="stat"><span>ควันเกิน 37.5 ไกลถึง</span><b>${res.reach>0?fmt(res.reach/1000,2)+' กม.':'ไม่เกิน'}</b></div>
+    <div class="stat"><span>ทิศที่ควันไป</span><b>${compass(S.wdir+180)}</b></div>
+    <div class="sep"></div>
+    <div style="font-size:12.5px;color:var(--text-dim);margin-bottom:4px">พื้นที่ได้รับผลกระทบ</div>
+    ${bandsHtml || '<div class="note">ควันเจือจางต่ำกว่าเกณฑ์แสดงผลภายในระยะจำลอง</div>'}
+    <div class="stat" style="margin-top:6px"><span>ประชากรในเขตเกิน 37.5</span><b>≈ ${Math.round(pop).toLocaleString('th-TH')} คน</b></div>
+    ${recHtml}
+    ${res.capped?'<div class="note">⚠ พลูมชนเพดานชั้นผสมที่ '+S.mix+' ม. ควันถูกกักไม่ให้ลอยขึ้น จึงกดกลับลงมาที่พื้น</div>':''}
+    <div class="note">ค่าเฉลี่ย ${S.avg} นาที · รวมพื้นหลัง ${S.bg} µg/m³ · ${res.nSrc} จุดต้นกำเนิดย่อย</div>
+  `;
+}
+
+let pending=null;
+function run(){
+  clearTimeout(pending);
+  pending = setTimeout(()=>{
+    const res = simulate();
+    draw(res);
+    renderReadout(res);
+  }, 60);
+}
+
+/* ---------------- fire geometry on map ---------------- */
+function redrawFire(){
+  if(fireLayer){ map.removeLayer(fireLayer); fireLayer=null; }
+  if(draftLayer){ map.removeLayer(draftLayer); draftLayer=null; }
+  if(S.draft.length){
+    draftLayer = L.layerGroup().addTo(map);
+    L.polyline(S.draft,{color:'#e8b13c',weight:2,dashArray:'4 4'}).addTo(draftLayer);
+    S.draft.forEach(p=>L.circleMarker(p,{radius:4,color:'#e8b13c',fillOpacity:1}).addTo(draftLayer));
+  }
+  if(!S.fire) return;
+  if(S.fire.type==='point'){
+    const r = Math.sqrt(S.rai*RAI/Math.PI);
+    fireLayer = L.layerGroup().addTo(map);
+    L.circle(S.fire.origin,{radius:r,color:'#e04b4b',weight:1.5,fillColor:'#e04b4b',fillOpacity:.28}).addTo(fireLayer);
+    L.marker(S.fire.origin,{icon:L.divIcon({className:'',html:'<div class="firemark">🔥</div>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(fireLayer);
+  }else{
+    fireLayer = L.polygon(S.fire.latlngs,{color:'#e04b4b',weight:1.5,fillColor:'#e04b4b',fillOpacity:.28}).addTo(map);
+  }
+  const areaM2 = S.fire.type==='point' ? S.rai*RAI : polyAreaM2(S.fire.latlngs,S.fire.origin);
+  document.getElementById('areatag').textContent =
+    `${fmt(areaM2/RAI,1)} ไร่ · ${fmt(areaM2/1e6,3)} กม²`;
+}
+function redrawReceptors(){
+  recLayer.clearLayers();
+  S.receptors.forEach((r,i)=>{
+    L.marker(r,{icon:L.divIcon({className:'',html:`<div class="recmark">${i+1}</div>`,iconSize:[20,20],iconAnchor:[10,10]})}).addTo(recLayer);
+  });
+}
+
+map.on('click', e=>{
+  if(S.recPlacing){ S.receptors.push(e.latlng); redrawReceptors(); run(); return; }
+  if(S.mode==='point'){
+    S.fire = {type:'point', origin:e.latlng};
+    redrawFire(); run();
+  }else{
+    S.draft.push(e.latlng);
+    document.getElementById('btnFinish').style.display = S.draft.length>=3?'':'none';
+    document.getElementById('btnUndo').style.display='';
+    redrawFire();
+  }
+});
+
+/* ---------------- UI wiring ---------------- */
+const $=id=>document.getElementById(id);
+
+// dropdowns
+$('fuel').innerHTML = Object.entries(FUELS).map(([k,v])=>`<option value="${k}">${v.n}</option>`).join('');
+$('stab').innerHTML = Object.entries(STAB).map(([k,v])=>`<option value="${k}">${k}</option>`).join('');
+$('stab').title='ระดับความปั่นป่วนของบรรยากาศ';
+$('tod').innerHTML = TOD.map(t=>`<option value="${t.id}">${t.n}</option>`).join('');
+$('place').innerHTML = '<option value="">— ย้ายแผนที่ไปยัง —</option>' + PLACES.map((p,i)=>`<option value="${i}">${p.n}</option>`).join('');
+$('stab').value=S.stab;
+$('legrows').innerHTML = BANDS.map(b=>
+  `<div class="lrow"><i class="sw" style="background:rgb(${b.c})"></i>${b.lo}${b.hi>1e8?'+':'–'+b.hi} · ${b.n}</div>`).join('');
+
+function setMode(m){
+  S.mode=m;
+  $('mPoint').setAttribute('aria-pressed', m==='point');
+  $('mPoly').setAttribute('aria-pressed', m==='poly');
+  $('rowRai').style.display = m==='point'?'':'none';
+  $('modehint').textContent = m==='point'
+    ? 'คลิกบนแผนที่เพื่อวางจุดไฟ แล้วกำหนดขนาดพื้นที่ด้านล่าง'
+    : 'คลิกไล่ไปตามขอบแปลงทีละมุม ครบแล้วกด “ปิดรูป”';
+  S.draft=[]; S.fire=null;
+  $('btnFinish').style.display='none'; $('btnUndo').style.display='none';
+  $('areatag').textContent='ยังไม่ได้กำหนด';
+  redrawFire(); run();
+}
+$('mPoint').onclick=()=>setMode('point');
+$('mPoly').onclick=()=>setMode('poly');
+
+$('btnFinish').onclick=()=>{
+  if(S.draft.length<3) return;
+  const c = S.draft.reduce((a,p)=>[a[0]+p.lat,a[1]+p.lng],[0,0]).map(v=>v/S.draft.length);
+  S.fire = {type:'poly', latlngs:S.draft.slice(), origin:L.latLng(c[0],c[1])};
+  S.draft=[];
+  $('btnFinish').style.display='none'; $('btnUndo').style.display='none';
+  redrawFire(); run();
+};
+$('btnUndo').onclick=()=>{
+  S.draft.pop();
+  $('btnFinish').style.display = S.draft.length>=3?'':'none';
+  if(!S.draft.length) $('btnUndo').style.display='none';
+  redrawFire();
+};
+$('btnRec').onclick=function(){
+  S.recPlacing=!S.recPlacing;
+  this.textContent = S.recPlacing?'กำลังวาง… (กดเพื่อหยุด)':'วางจุดรับผลกระทบ';
+  this.style.borderColor = S.recPlacing?'var(--accent)':'';
+};
+
+// numeric + select bindings
+function bindNum(id,key,after){
+  $(id).value=S[key];
+  $(id).oninput=()=>{ const v=parseFloat($(id).value); if(!isNaN(v)){ S[key]=v; after&&after(); run(); } };
+}
+bindNum('rai','rai',redrawFire);
+bindNum('load','load'); bindNum('ef','ef'); bindNum('cc','cc'); bindNum('dur','dur');
+bindNum('mix','mix'); bindNum('bg','bg'); bindNum('pop','pop');
+
+$('fuel').onchange=()=>{
+  const f=FUELS[$('fuel').value]; S.fuel=$('fuel').value;
+  S.load=f.load; S.ef=f.ef; S.cc=f.cc;
+  $('load').value=f.load; $('ef').value=f.ef; $('cc').value=f.cc;
+  run();
+};
+$('stab').onchange=()=>{ S.stab=$('stab').value; run(); };
+$('tod').onchange=()=>{
+  const t=TOD.find(x=>x.id===$('tod').value);
+  if(!t||!t.id) return;
+  S.stab=t.stab; S.mix=t.mix; S.ws=t.ws;
+  $('stab').value=t.stab; $('mix').value=t.mix; $('wspd').value=t.ws;
+  $('wspdtxt').textContent=fmt(t.ws,1)+' ม./วิ';
+  run();
+};
+$('range').onchange=()=>{ S.rangeKm=+$('range').value; run(); };
+$('avg').onchange=()=>{ S.avg=+$('avg').value; run(); };
+$('res').onchange=()=>{ S.res=+$('res').value; run(); };
+$('opa').oninput=()=>{ S.opacity=+$('opa').value; run(); };
+$('wspd').oninput=()=>{ S.ws=+$('wspd').value; $('wspdtxt').textContent=fmt(S.ws,1)+' ม./วิ'; run(); };
+$('smold').oninput=()=>{ S.smold=+$('smold').value; $('smoldtxt').textContent=Math.round(S.smold*100)+'%'; run(); };
+$('place').onchange=()=>{
+  const i=$('place').value; if(i==='') return;
+  map.setView(PLACES[+i].c, 12);
+};
+$('clearAll').onclick=()=>{
+  S.fire=null; S.draft=[]; S.receptors=[];
+  recLayer.clearLayers(); redrawFire();
+  $('areatag').textContent='ยังไม่ได้กำหนด';
+  run();
+};
+
+// wind dial
+const dial=$('dial');
+function setWind(deg){
+  S.wdir=((Math.round(deg)%360)+360)%360;
+  $('dialarrow').setAttribute('transform',`rotate(${S.wdir} 60 60)`);
+  dial.setAttribute('aria-valuenow',S.wdir);
+  $('wdirtxt').textContent = `${S.wdir}° ${compass(S.wdir)}`;
+  run();
+}
+function dialFromEvent(ev){
+  const r=dial.getBoundingClientRect();
+  const p = ev.touches?ev.touches[0]:ev;
+  const dx=p.clientX-(r.left+r.width/2), dy=p.clientY-(r.top+r.height/2);
+  setWind(Math.atan2(dx,-dy)*180/Math.PI);
+}
+let dragging=false;
+dial.addEventListener('pointerdown',e=>{dragging=true;dial.setPointerCapture(e.pointerId);dialFromEvent(e);});
+dial.addEventListener('pointermove',e=>{if(dragging)dialFromEvent(e);});
+dial.addEventListener('pointerup',()=>dragging=false);
+dial.addEventListener('keydown',e=>{
+  if(e.key==='ArrowLeft'||e.key==='ArrowDown'){setWind(S.wdir-5);e.preventDefault();}
+  if(e.key==='ArrowRight'||e.key==='ArrowUp'){setWind(S.wdir+5);e.preventDefault();}
+});
+
+// basemap picker
+$('basesel').innerHTML = BASEMAPS.map((b,i)=>`<option value="${i}">${b.n}</option>`).join('');
+$('basesel').onchange = ()=>{ autoTried = BASEMAPS.length; setBase(+$('basesel').value, true); };
+$('retryTiles').onclick = ()=>{ autoTried=0; warn().style.display='none'; setBase(0); };
+setBase(0);
+
+// ค้นหาสถานที่ (Nominatim)
+const sres = $('sresults');
+let stimer=null;
+function closeResults(){ sres.style.display='none'; sres.innerHTML=''; }
+$('search').addEventListener('input', ()=>{
+  clearTimeout(stimer);
+  const q = $('search').value.trim();
+  if(q.length<2){ closeResults(); return; }
+  stimer = setTimeout(async ()=>{
+    sres.style.display='block';
+    sres.innerHTML = '<div class="no">กำลังค้นหา…</div>';
+    try{
+      const u = 'https://nominatim.openstreetmap.org/search?format=json&limit=6&countrycodes=th&q='+encodeURIComponent(q);
+      const r = await fetch(u,{headers:{'Accept':'application/json'}});
+      if(!r.ok) throw new Error(r.status);
+      const j = await r.json();
+      if(!j.length){ sres.innerHTML='<div class="no">ไม่พบสถานที่นี้</div>'; return; }
+      sres.innerHTML='';
+      j.forEach(it=>{
+        const d=document.createElement('div');
+        d.textContent = it.display_name.split(',').slice(0,4).join(',');
+        d.onclick = ()=>{ map.setView([+it.lat,+it.lon], 14); $('search').value=''; closeResults(); };
+        sres.appendChild(d);
+      });
+    }catch(err){
+      sres.innerHTML = '<div class="no">ค้นหาไม่ได้ในสภาพแวดล้อมนี้ — ใช้รายชื่อจังหวัดในแผงซ้าย หรือเปิดไฟล์ในเบราว์เซอร์ปกติ</div>';
+    }
+  }, 450);
+});
+$('search').addEventListener('blur', ()=>setTimeout(closeResults,180));
+
+$('btnGeo').onclick = ()=>{
+  if(!navigator.geolocation){ alert('เบราว์เซอร์นี้ไม่รองรับการระบุตำแหน่ง'); return; }
+  $('btnGeo').textContent='กำลังหา…';
+  navigator.geolocation.getCurrentPosition(
+    p=>{ map.setView([p.coords.latitude,p.coords.longitude],14); $('btnGeo').textContent='ตำแหน่งฉัน'; },
+    ()=>{ $('btnGeo').textContent='ตำแหน่งฉัน'; alert('เข้าถึงตำแหน่งไม่ได้ — ต้องอนุญาตสิทธิ์ และหน้าต้องเปิดผ่าน https'); },
+    {enableHighAccuracy:true, timeout:8000}
+  );
+};
+
+setWind(45);
+setMode('point');
+</script>
