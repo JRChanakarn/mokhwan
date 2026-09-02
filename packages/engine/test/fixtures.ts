@@ -9,7 +9,7 @@
 export const RAI = 1600;               // ตร.ม. ต่อไร่
 export const RICE = { load: 0.60, ef: 9.5, cc: 0.89, moist: 0.35 };
 
-/** สร้างแปลงจุดแบบเดียวกับ buildFires() — บรรทัด 277–305 ของบล็อกแอป (= 1142–1170 ของไฟล์ตั้งต้น) */
+/** สร้างแปลงจุดแบบเดียวกับ buildFires() — บรรทัด 274–306 ของบล็อกแอป (= 1139–1171 ของไฟล์ตั้งต้น) */
 function ricePointFire(rai: number) {
   const areaM2 = rai * RAI;
   const side = Math.sqrt(areaM2);
@@ -81,15 +81,24 @@ function buildCase(
 }
 
 /**
- * ภูมิประเทศสังเคราะห์จาก HANDOFF-terrain-mode.md — แอ่งกลาง + สันเขาขวางทาง
- * ตะวันตกเฉียงใต้ นิยามในพิกัดของกริด (grid-local) ให้ตรงกับที่ HANDOFF เขียนไว้
+ * ภูมิประเทศสังเคราะห์จาก HANDOFF-terrain-mode.md — แอ่งกลางที่จุดเผา
+ * + สันเขาขวางทางตะวันตกเฉียงใต้
+ *
+ * **ต้องใช้พิกัดชดเชย (cx, cy) ให้ตรงกับที่เอนจินอ่าน `elev`**
+ * `makeSampler` (smoke-plume-studio-lasted.html:680) ตั้ง `x0 = cx - R, y1 = cy + R`
+ * แปลว่าเอนจินตีความ `Z[j*N+i]` ว่าเป็นจุด `(cx - R + (i+0.5)cell, cy + R - (j+0.5)cell)`
+ *
+ * สคริปต์ใน HANDOFF เขียนเป็น `-R + (i+0.5)cell` เฉยๆ (คือถือว่า cx=cy=0)
+ * ซึ่งใช้ไม่ได้จริง เพราะ `runSim` เลื่อนศูนย์กลางกริดไปทางท้ายลม `0.32·R` เสมอ
+ * ถ้าละ (cx, cy) ภูมิประเทศจะเลื่อนจากจุดเผาไป ~2,263 ม. ทั้งสองแกน
+ * ทำให้จุดเผาไปอยู่ไหล่แอ่งตื้นๆ แทนที่จะอยู่ก้นแอ่งตามที่ตั้งใจ
  */
-function syntheticDem(N: number, R: number): Float32Array {
+function syntheticDem(N: number, R: number, cx: number, cy: number): Float32Array {
   const cell = 2 * R / N;
   const Z = new Float32Array(N * N);
   for (let j = 0; j < N; j++) {
     for (let i = 0; i < N; i++) {
-      const x = -R + (i + 0.5) * cell, y = R - (j + 0.5) * cell;
+      const x = cx - R + (i + 0.5) * cell, y = cy + R - (j + 0.5) * cell;
       Z[j * N + i] = Math.max(0,
           300
         + 620 * Math.exp(-Math.pow((x * 0.7071 + y * 0.7071 + 3500) / 1800, 2))  // สันเขา
@@ -123,6 +132,13 @@ export const CASES = {
    * ถ้าไม่มีเคสนี้ `doseGrid.over` / `.overMaxKm` / `.truncated` เป็น 0/0/false
    * ในทุกเคส = สามฟิลด์ที่เช็กแล้วแดงไม่ได้เลย
    *
+   * เคสนี้ปลุกได้ **2 ใน 3** — `over` = 27 และ `overMaxKm` = 3.28 กม.
+   * ส่วน `doseGrid.truncated` ยัง `false` ทุกเคสและรับไว้อย่างนั้น เพราะจะปลุกได้
+   * ต้องให้ค่าเฉลี่ย 24 ชม. เกิน 37.5 ไปถึงขอบโดเมนที่ 10 กม. ซึ่งไม่ใช่สถานการณ์
+   * ที่เกิดจากการเผาแปลงเดียว การจัดฉากให้เกิดคือการปั้น fixture เพื่อปลุกตัวชี้วัด
+   * ไม่ใช่เพื่อคุ้มกันโค้ด · ความเสี่ยงต่ำเพราะการเปลี่ยนที่จะกระทบ `truncated`
+   * แทบทั้งหมดกระทบ `over`/`overMaxKm` ซึ่งมีชีวิตแล้วด้วย
+   *
    * ตัวแปรที่ใช้ได้คือ **ทิศลมคงที่** ไม่ใช่พื้นที่หรือระยะเวลา
    *   - เพิ่มเวลาเฉยๆ ไม่ช่วย เพราะ `weights` normalize เป็น 1 มวลรวมคงที่
    *     เผายาวขึ้น = มวลเดิมกระจายหลายชั่วโมง ความเข้มข้นรายชั่วโมงลดลงตามกัน
@@ -155,9 +171,15 @@ export const CASES = {
  * ต้องอัปเดตพร้อมกับคำอธิบายว่าเปลี่ยนเพราะอะไร — เป็นการเปลี่ยนที่ตั้งใจ ไม่ใช่การย้ายพลาด
  */
 export const PUFF_CASES = {
-  /** พื้นราบ (ไม่มี elev) — ออกกำลังทางแยก Z=null ของ windField */
+  /**
+   * พื้นราบ (ไม่มี elev) — ออกกำลังทางแยก `Z=null` ของ `windField`
+   * (คืนค่าที่ smoke-plume-studio-lasted.html:624 ก่อนถึงบรรทัดที่ใช้ DRAIN/DTHETA/SHELT)
+   *
+   * ใส่ฝน 0.8 mm/h เพื่อออกกำลังทางแยกการชะด้วยฝนใน `runPuff` ด้วย
+   * ซึ่งเคส puff แบบไม่มีฝนไปไม่ถึง
+   */
   puffFlat: buildCase([
-    { t: '2026-03-15T06:00', ws: 1.3, wdir: 35, stab: 'F', mix: 180, precip: 0 },
+    { t: '2026-03-15T06:00', ws: 1.3, wdir: 35, stab: 'F', mix: 180, precip: 0.8 },
   ], 'puff'),
 
   /** ภูมิประเทศสังเคราะห์ — ออกกำลังสนามลมวินิจฉัยเต็มเส้นทาง */
@@ -165,7 +187,7 @@ export const PUFF_CASES = {
     const c = buildCase([
       { t: '2026-03-15T06:00', ws: 1.3, wdir: 45, stab: 'F', mix: 180, precip: 0 },
     ], 'puff');
-    return { ...c, elev: syntheticDem(c.grid.N, c.grid.R) };
+    return { ...c, elev: syntheticDem(c.grid.N, c.grid.R, c.grid.cx, c.grid.cy) };
   })(),
 };
 
