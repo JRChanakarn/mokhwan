@@ -1173,7 +1173,9 @@ MSG
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  server: { port: 5173 },
+  // 5173 มีโปรเจกต์อื่นจองอยู่บนเครื่องที่พัฒนา ใช้ 5180 ให้เดาได้แน่นอน
+  server: { port: 5180 },
+  preview: { port: 5181 },
   build: { target: 'es2020', sourcemap: true },
 });
 ```
@@ -1375,7 +1377,7 @@ if(import.meta.env.DEV || new URLSearchParams(location.search).has('debug')){
 
 Run: `npm run dev -w app`
 
-แล้วเปิด `http://localhost:5173` ตรวจด้วยตา 6 ข้อ
+แล้วเปิด `http://localhost:5180` ตรวจด้วยตา 6 ข้อ
 
 1. แผนที่ขึ้น เห็นพื้นเทาเข้ม (basemap ปริยาย)
 2. คลิกบนแผนที่ปักแปลงได้ แล้วมีชั้นควันวาดออกมา
@@ -1391,7 +1393,7 @@ Run: `npm run dev -w app`
 Run: `npm run build -w app`
 Expected: build สำเร็จ
 
-Run: `npx vite preview --root app --port 4173` แล้วเปิด `http://localhost:4173` ตรวจ 6 ข้อเดิมซ้ำ
+Run: `npm run preview -w app` แล้วเปิด `http://localhost:5181` ตรวจ 6 ข้อเดิมซ้ำ
 
 Expected: ผ่านทั้ง 6 ข้อ (dev กับ build ต่างกันได้เรื่อง worker และ lazy import จึงต้องตรวจทั้งสองโหมด)
 
@@ -1449,10 +1451,10 @@ Expected: ติดตั้งสำเร็จ
 
 ```js
 /* smoke test — ยืนยันว่าแอปเปิดได้ ปักแปลงได้ และคำนวณออกผล
-   รันด้วย: npm run test:smoke  (ต้องมี dev server อยู่ที่ 5173 ก่อน) */
+   รันด้วย: npm run test:smoke  (ต้องมี dev server อยู่ที่ 5180 ก่อน) */
 import { chromium } from 'playwright-core';
 
-const URL_APP = process.env.APP_URL ?? 'http://localhost:5173/?debug';
+const URL_APP = process.env.APP_URL ?? 'http://localhost:5180/?debug';
 const fails = [];
 const check = (ok, msg) => { console.log(`${ok ? '  ✓' : '  ✗'} ${msg}`); if (!ok) fails.push(msg); };
 
@@ -1518,7 +1520,7 @@ console.log('\nผ่านทั้งหมด');
 
 - [ ] **Step 4: รัน smoke test**
 
-Run (สอง terminal): `npm run dev -w app` แล้ว `npm run test:smoke`
+Run (สอง terminal): `npm run dev -w app` (เสิร์ฟที่ 5180) แล้ว `npm run test:smoke`
 Expected: `ผ่านทั้งหมด`
 
 - [ ] **Step 5: พิสูจน์ R1 — ไฟล์เดียวยังรอดไหม**
