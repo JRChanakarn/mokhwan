@@ -14,6 +14,7 @@
   "files": ["dist", "src"],
   "sideEffects": false,
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "vite build && tsc --emitDeclarationOnly --declaration --outDir dist"
   }
 }

@@ -1,5 +1,16 @@
 {
   "extends": "./tsconfig.base.json",
-  "compilerOptions": { "noEmit": true, "declaration": false, "declarationMap": false },
-  "include": ["packages/*/src/**/*.ts", "packages/*/test/**/*.ts", "*.ts"]
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "lib": [
+      "ES2020",
+      "WebWorker"
+    ]
+  },
+  "include": [
+    "packages/*/test/**/*.ts",
+    "*.ts"
+  ]
 }
