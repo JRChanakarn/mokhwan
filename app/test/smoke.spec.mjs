@@ -1,18 +1,28 @@
 /**
- * smoke test — ยืนยันว่าแอปเปิดได้ ปักแปลงได้ คำนวณออกผล และเปลี่ยนมุมมองไม่คำนวณใหม่
+ * smoke test — เทสต์อัตโนมัติตัวเดียวที่คุมชั้นแอป
  *
  * รันด้วย: npm run test:smoke   (ต้องมี dev server อยู่ที่ 5180 ก่อน — `npm run dev -w app`)
- * หรือชี้ที่อื่น: APP_URL=http://localhost:5181/?debug npm run test:smoke
+ * ชี้ที่อื่นได้: APP_URL=http://localhost:5181/?debug npm run test:smoke
  *
  * ใช้ Chrome ที่ติดตั้งในเครื่องผ่าน channel:'chrome' จึงไม่ต้องดาวน์โหลดเบราว์เซอร์
  * ~150 MB ของ Playwright ถ้าไม่มีจะถอยไปใช้ chromium ที่ Playwright จัดมา
  *
- * ตั้งสภาพอากาศเป็นโหมดกำหนดเองโดยตั้งใจ เพื่อให้เทสต์ไม่พึ่ง Open-Meteo
- * ผลลัพธ์จึงคงที่และรันได้แม้ไม่มีเน็ต
+ * **ปลอดเน็ตจริง** ทุกคำขอที่ออกนอก origin ของแอปถูก intercept แล้วตอบด้วยไทล์ว่าง
+ * เพราะไทล์แผนที่พื้นฐานโหลดตอน boot เสมอ (setBase(0)) ไม่เกี่ยวกับโหมดสภาพอากาศ
+ * ถ้าไม่ stub เครื่องที่เน็ตถูกจำกัดจะได้ console error จากไทล์ที่โหลดไม่ได้
+ * แล้วเทสต์แดงทั้งที่แอปไม่มีปัญหา — และการ stub ยังทำให้ยืนยันได้ว่าแอปคุยกับ
+ * host ภายนอกตัวไหนบ้าง ซึ่งเป็นการตรวจที่แข็งกว่าการ grep หาชื่อ CDN
  */
 import { chromium } from 'playwright-core';
 
 const APP_URL = process.env.APP_URL ?? 'http://localhost:5180/?debug';
+const APP_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** PNG โปร่งใส 1×1 ใช้ตอบแทนไทล์ทุกใบ */
+const BLANK_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+  'base64',
+);
 
 const fails = [];
 const check = (ok, msg) => {
@@ -32,23 +42,50 @@ const errors = [];
 page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', e => errors.push(String(e)));
 
+// ตัดทุกคำขอที่ออกนอก origin ของแอป และจดว่าไปหา host อะไร
+const externalHosts = new Map();
+await page.route('**/*', route => {
+  const u = new URL(route.request().url());
+  if (APP_HOSTS.has(u.hostname)) return route.continue();
+  externalHosts.set(u.hostname, (externalHosts.get(u.hostname) ?? 0) + 1);
+  return route.fulfill({ status: 200, contentType: 'image/png', body: BLANK_PNG });
+});
+
 try {
   await page.goto(APP_URL, { waitUntil: 'networkidle', timeout: 30_000 });
 } catch (e) {
-  console.error(`\nเปิด ${APP_URL} ไม่ได้ — dev server รันอยู่ที่ 5180 หรือยัง\n${e.message}`);
+  console.error(`\nเปิด ${APP_URL} ไม่ได้ — dev server รันอยู่ที่ 5180 หรือยัง` +
+                `\n  npm run dev -w app\n${e.message}`);
   await browser.close();
   process.exit(1);
 }
 
-check(await page.locator('#map').isVisible(), 'แผนที่แสดงผล');
+/* ── แอปบูตขึ้นมาจริง ───────────────────────────────────────────────── */
+
+// เช็คคลาสที่ Leaflet ใส่ให้ตัว #map เอง ไม่ใช่แค่ว่า div มีอยู่และมองเห็น
+// (#map มีขนาดจาก CSS อยู่แล้ว isVisible() จึงเขียวได้แม้ L.map() จะโยน)
+check(await page.evaluate(() =>
+  !!document.getElementById('map')?.classList.contains('leaflet-container')),
+  'Leaflet เริ่มต้นสำเร็จ (#map ได้คลาส leaflet-container)');
 
 const handleKeys = await page.evaluate(() =>
   window.__MOKHWAN__ ? Object.keys(window.__MOKHWAN__) : null);
 check(Array.isArray(handleKeys), 'debug handle เปิดอยู่');
-for (const k of ['S', 'addPlot', 'setWxMode', 'syncAllInputs', 'runSim', 'map'])
+for (const k of ['S', 'addPlot', 'setWxMode', 'syncAllInputs', 'runSim', 'engineRun', 'map'])
   check(!!handleKeys?.includes(k), `debug handle มี ${k}`);
 
-// สภาพอากาศกำหนดเอง 1 ชั่วโมง แล้วปักแปลง 20 ไร่
+// เอนจินต้องรันในเวิร์กเกอร์จริง ไม่ใช่ถอยไปเธรดหลักแบบเงียบๆ
+// (engineRun มี try/catch ที่ถอยให้อยู่แล้ว เวิร์กเกอร์พังจึงไม่ทำให้เทสต์แดงเอง)
+const workerLoaded = await page.evaluate(() =>
+  performance.getEntriesByType('resource').filter(r => /worker/i.test(r.name)).length);
+check(workerLoaded > 0, `เอนจินโหลดเป็น Web Worker จริง (${workerLoaded} ไฟล์) ไม่ได้ถอยไปเธรดหลัก`);
+
+// ยังไม่ปักแปลง ต้องยังไม่มีชั้นภาพพลูม — เป็นฐานเทียบของเช็คถัดไป
+const rasterBefore = await page.locator('#map .leaflet-image-layer').count();
+check(rasterBefore === 0, `ก่อนปักแปลงยังไม่มีชั้นภาพพลูม (พบ ${rasterBefore})`);
+
+/* ── ปักแปลงแล้วต้องคำนวณออกผล ──────────────────────────────────────── */
+
 await page.evaluate(() => {
   const M = window.__MOKHWAN__;
   M.setWxMode('man');
@@ -63,12 +100,9 @@ await page.waitForFunction(() => window.__MOKHWAN__.S.result !== null, { timeout
 const r = await page.evaluate(() => {
   const res = window.__MOKHWAN__.S.result;
   return {
-    hours: res.perHour.length,
-    cells: res.maxGrid.length,
-    peak: res.perHour[0].max,
-    stab: res.perHour[0].stab,
-    fuelT: res.totalFuelT,
-    reqId: res.reqId,
+    hours: res.perHour.length, cells: res.maxGrid.length,
+    peak: res.perHour[0].max, stab: res.perHour[0].stab,
+    fuelT: res.totalFuelT, reqId: res.reqId,
   };
 });
 
@@ -77,32 +111,87 @@ check(r.cells === 180 * 180, `กริด 180×180 = ${180 * 180} เซลล�
 check(r.stab === 'F', `ใช้ความเสถียรที่ตั้งไว้ F (ได้ ${r.stab})`);
 check(Math.abs(r.fuelT - 10.68) < 0.01, `เชื้อเพลิง 20 ไร่ฟางข้าว = 10.68 ตัน (ได้ ${r.fuelT})`);
 check(r.peak > 10 && r.peak < 10_000, `พีคอยู่ในย่านที่สมเหตุสมผล: ${r.peak.toFixed(1)} µg/m³`);
-check(!!(await page.locator('#map canvas, #map .leaflet-image-layer').first().count()),
-  'ชั้นควันถูกวาดลงแผนที่');
 
-// เปลี่ยนมุมมองต้องไม่คำนวณใหม่ — ต้องกดผ่าน DOM จริง
-// การเซ็ต S.view ตรงๆ ไม่ทริกอะไร เทสต์จะผ่านฟรี
+/* ── ชั้นภาพพลูมต้องถูกวาดจริง ──────────────────────────────────────── */
+
+// ต้องเช็ค .leaflet-image-layer ซึ่งเป็น L.imageOverlay ของ drawOverlay() เท่านั้น
+// **ห้ามเช็ค `#map canvas`** เพราะ preferCanvas:true ทำให้วงขอบแปลงที่ redrawPlots()
+// วาดด้วย L.circle ไปอยู่บน canvas ร่วม ตั้งแต่ก่อนการจำลองจะเริ่ม
+// เช็คที่ยอมรับ canvas จึงเขียวได้แม้การวาดพลูมพังทั้งหมด (code review จับได้)
+// ถอดภาพออกมานับพิกเซลจริง ไม่วัดด้วยความยาว data URL
+// ความยาวขึ้นกับการบีบอัด PNG ซึ่งบีบไล่สีเรียบๆ ได้ดีมาก เกณฑ์ความยาวจึงเป็น
+// ตัวแทนที่เดาได้ยากและไม่ได้วัดสิ่งที่อยากรู้ — ที่อยากรู้คือ "มีควันวาดอยู่จริงไหม"
+const raster = await page.evaluate(async () => {
+  const el = document.querySelector('#map .leaflet-image-layer');
+  if (!el) return null;
+  const src = el.getAttribute('src') ?? '';
+  const img = new Image();
+  img.src = src;
+  await img.decode();
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth; c.height = img.naturalHeight;
+  c.getContext('2d').drawImage(img, 0, 0);
+  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  let opaque = 0;
+  const colours = new Set();
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] > 8) {
+      opaque++;
+      colours.add((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]);
+    }
+  }
+  return {
+    src: src.slice(0, 16), px: img.naturalWidth * img.naturalHeight,
+    opaque, colours: colours.size,
+    w: el.clientWidth, h: el.clientHeight,
+  };
+});
+check(!!raster, 'ชั้นภาพพลูมถูกวาดลงแผนที่ (.leaflet-image-layer)');
+check(!!raster && raster.src.startsWith('data:image/'),
+  `ภาพพลูมเป็น data URL (${raster ? raster.src + '…' : 'ไม่มี'})`);
+// ควันต้องกินพื้นที่พอสมควร ภาพเปล่าจะได้ 0 และจุดเดียวจะได้น้อยกว่า 0.5%
+check(!!raster && raster.opaque > raster.px * 0.005,
+  `ภาพพลูมมีพิกเซลทึบจริง ${raster ? raster.opaque.toLocaleString() + '/' + raster.px.toLocaleString()
+    + ' = ' + (raster.opaque / raster.px * 100).toFixed(1) + '%' : '—'} ของภาพ`);
+// ต้องมีหลายสี เพราะเป็นการไล่ตามแถบ AQI ไม่ใช่ก้อนสีเดียว
+check(!!raster && raster.colours >= 3,
+  `ภาพพลูมไล่หลายสีตามแถบ AQI (${raster ? raster.colours : 0} สี)`);
+check(!!raster && raster.w > 50 && raster.h > 50,
+  `ภาพพลูมมีขนาดบนจอ (${raster ? raster.w + '×' + raster.h : '—'})`);
+
+/* ── เปลี่ยนมุมมองต้องไม่คำนวณใหม่ ──────────────────────────────────── */
+
+// ต้องกดผ่าน DOM จริง การเซ็ต S.view ตรงๆ ไม่ทริกอะไรและจะผ่านฟรี
+// และต้องรอให้เกิน debounce ของ schedule() (90 ms) บวกเวลาไป-กลับเวิร์กเกอร์
+// ไม่งั้น regression ที่ทำให้เปลี่ยนมุมมองแล้วเรียก schedule() จะเล็ดลอดไปได้
+const DEBOUNCE_MARGIN = 1_200;
 const before = r.reqId;
 await page.click('#vMax');
 await page.waitForFunction(() => window.__MOKHWAN__.S.view === 'max', { timeout: 5_000 });
+await page.waitForTimeout(DEBOUNCE_MARGIN);
 const afterMax = await page.evaluate(() => window.__MOKHWAN__.S.result.reqId);
 await page.click('#vDose');
 await page.waitForFunction(() => window.__MOKHWAN__.S.view === 'dose', { timeout: 5_000 });
+await page.waitForTimeout(DEBOUNCE_MARGIN);
 const afterDose = await page.evaluate(() => window.__MOKHWAN__.S.result.reqId);
 
 check(before === afterMax && before === afterDose,
-  `เปลี่ยนมุมมองไม่ทำให้คำนวณใหม่ (reqId ${before} → ${afterMax} → ${afterDose})`);
+  `เปลี่ยนมุมมองไม่ทำให้คำนวณใหม่ (reqId ${before} → ${afterMax} → ${afterDose}` +
+  ` · รอเกิน debounce ${DEBOUNCE_MARGIN} ms แล้ว)`);
 
-// maplibre ต้องไม่ถูกโหลดตอนเปิดหน้า
+/* ── การโหลดของภายนอก ───────────────────────────────────────────────── */
+
 const mlBefore = await page.evaluate(() =>
   performance.getEntriesByType('resource').filter(x => /maplibre/i.test(x.name)).length);
 check(mlBefore === 0, `maplibre ไม่ถูกโหลดจนกว่าจะกด 3D (โหลดแล้ว ${mlBefore} ไฟล์)`);
 
-// ไม่มีคำขอไป CDN
-const cdn = await page.evaluate(() =>
-  performance.getEntriesByType('resource')
-    .filter(x => /cdnjs|unpkg|jsdelivr/.test(x.name)).map(x => x.name));
-check(cdn.length === 0, `ไม่มีคำขอไป CDN${cdn.length ? ' — ' + cdn.join(', ') : ''}`);
+// host ภายนอกที่แอปคุยด้วยต้องเป็นแค่ผู้ให้บริการแผนที่พื้นฐาน
+// ห้ามมี CDN ของไลบรารีหลุดกลับมา ซึ่งเป็นสิ่งที่งานรื้อโครงนี้กำจัดไป
+const LIB_CDNS = ['cdnjs.cloudflare.com', 'unpkg.com', 'cdn.jsdelivr.net'];
+const hosts = [...externalHosts.keys()];
+const leaked = hosts.filter(h => LIB_CDNS.some(c => h.includes(c)));
+check(leaked.length === 0, `ไม่มีการโหลดไลบรารีจาก CDN${leaked.length ? ' — ' + leaked.join(', ') : ''}`);
+console.log(`    host ภายนอกที่ถูก stub: ${hosts.length ? hosts.join(', ') : 'ไม่มีเลย'}`);
 
 check(errors.length === 0,
   `console ไม่มี error${errors.length ? ' — ' + errors.slice(0, 3).join(' | ') : ''}`);
@@ -114,4 +203,4 @@ if (fails.length) {
   fails.forEach(f => console.error('  - ' + f));
   process.exit(1);
 }
-console.log('\nผ่านทั้งหมด');
+console.log(`\nผ่านทั้งหมด ${fails.length === 0 ? '' : ''}`);
