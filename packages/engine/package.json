@@ -23,6 +23,31 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "vite build && tsc --emitDeclarationOnly --declaration --outDir dist",
-    "prepack": "npm run build"
+    "dev": "vite build --watch",
+    "prepare": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JRChanakarn/mokhwan.git",
+    "directory": "packages/engine"
+  },
+  "homepage": "https://github.com/JRChanakarn/mokhwan#readme",
+  "bugs": {
+    "url": "https://github.com/JRChanakarn/mokhwan/issues"
+  },
+  "author": "JRChanakarn",
+  "keywords": [
+    "pm2.5",
+    "air-quality",
+    "dispersion",
+    "gaussian-plume",
+    "smoke",
+    "biomass-burning",
+    "thailand",
+    "haze"
+  ],
+  "devDependencies": {
+    "typescript": "5.7.3",
+    "vite": "6.0.7"
   }
 }

@@ -443,7 +443,7 @@ function drawOverlay(disp){
   rasterL = L.imageOverlay(url, bounds, {opacity:1, interactive:false, zIndex:250}).addTo(map);
 
   // เส้นชั้นความเข้มข้น
-  if(d3 && d3.contours){
+  if(d3.contours){   // d3 เป็น static import แล้ว ไม่ต้องเช็คว่ามีตัวมันอยู่
     const grid = new Float64Array(N*N);
     for(let k=0;k<N*N;k++) grid[k] = disp[k] < 0.5 ? 0 : disp[k] + BG;
     const cell = res.cell;
@@ -957,7 +957,7 @@ $('lyWind').onchange  = async e => {
 $('wlopa').oninput = () => { ['radar','sat','gibs'].forEach(k => { if(WL[k]) WL[k].setOpacity(+$('wlopa').value); }); };
 if(OFFLINE){
   $('netnote').innerHTML = '<div class="warnbox">คุณเปิดไฟล์นี้แบบ <b>file://</b> เบราว์เซอร์จะบล็อกการเรียก API ภายนอกทั้งหมด (พยากรณ์อากาศ เรดาร์ OpenStreetMap) ' +
-    'ให้เปิดเทอร์มินัลที่โฟลเดอร์นี้แล้วสั่ง <b>python3 -m http.server 8000</b> จากนั้นเข้า <b>http://localhost:8000/smoke-plume-studio.html</b></div>';
+    'ให้เปิดเทอร์มินัลที่โฟลเดอร์นี้แล้วสั่ง <b>npm run dev -w app</b> จากนั้นเข้า <b>http://localhost:5180/</b></div>';
 }
 
 /* ---------------- 3D mode (MapLibre + terrain) ---------------- */

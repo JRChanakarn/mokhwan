@@ -5,7 +5,10 @@
  * ชี้ที่อื่นได้: APP_URL=http://localhost:5181/?debug npm run test:smoke
  *
  * ใช้ Chrome ที่ติดตั้งในเครื่องผ่าน channel:'chrome' จึงไม่ต้องดาวน์โหลดเบราว์เซอร์
- * ~150 MB ของ Playwright ถ้าไม่มีจะถอยไปใช้ chromium ที่ Playwright จัดมา
+ * ~150 MB · **ต้องมี Google Chrome ในเครื่อง** เพราะ dependency คือ playwright-core
+ * ซึ่งตั้งใจไม่พาเบราว์เซอร์มาเลย ถ้าไม่มี Chrome ให้สั่ง
+ *   npx playwright install chromium
+ * แล้วเทสต์จะถอยไปใช้ตัวนั้นเอง
  *
  * **ปลอดเน็ตจริง** ทุกคำขอที่ออกนอก origin ของแอปถูก intercept แล้วตอบด้วยไทล์ว่าง
  * เพราะไทล์แผนที่พื้นฐานโหลดตอน boot เสมอ (setBase(0)) ไม่เกี่ยวกับโหมดสภาพอากาศ
@@ -31,8 +34,19 @@ const check = (ok, msg) => {
 };
 
 async function launch() {
-  try { return await chromium.launch({ channel: 'chrome' }); }
-  catch { return await chromium.launch(); }
+  // ลอง Chrome ในเครื่องก่อน แล้วถอยไป chromium ที่ผู้ใช้ install ไว้เอง
+  // playwright-core ไม่พาเบราว์เซอร์มาให้ ถ้าไม่มีทั้งสองอย่างต้องบอกให้ชัด
+  // ไม่ปล่อยให้ error ดิบของ Playwright โผล่มาแล้วเดาไม่ออกว่าต้องทำอะไร
+  const tried = [];
+  for (const opt of [{ channel: 'chrome' }, {}]) {
+    try { return await chromium.launch(opt); }
+    catch (e) { tried.push(`${opt.channel ?? 'chromium (ที่ติดตั้งไว้)'}: ${e.message.split('\n')[0]}`); }
+  }
+  console.error(
+    '\nหาเบราว์เซอร์ไม่ได้ — dependency คือ playwright-core ซึ่งไม่พาเบราว์เซอร์มาให้\n' +
+    'ทางเลือก: ติดตั้ง Google Chrome หรือสั่ง  npx playwright install chromium\n\n' +
+    tried.map(t => '  - ' + t).join('\n'));
+  process.exit(1);
 }
 
 const browser = await launch();

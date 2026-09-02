@@ -223,8 +223,8 @@ export interface HourWx {
   stab:   Stability;
   mix:    number;      // ความสูงชั้นผสม (m)
   precip: number;      // ฝน (mm/h)
-  temp:   number;
-  rh:     number;
+  temp:   number | null;
+  rh:     number | null;
 }
 
 /** กริดสี่เหลี่ยมจัตุรัส N×N ครึ่งความกว้าง R เมตร ศูนย์กลางเลื่อนไปทางท้ายลม (cx,cy) */
@@ -258,6 +258,7 @@ export interface PerHour {
   share: number;      // = weights[h]
   Fr?: number;        // Froude number — โหมด puff เท่านั้น
   relief?: number;    // ความต่างระดับในโดเมน (m) — โหมด puff เท่านั้น
+  terrain?: boolean;  // true = คำนวณบน DEM จริง — โหมด puff เท่านั้น
 }
 
 export interface RunResult {
@@ -273,6 +274,7 @@ export interface RunResult {
   totalEmitKg: number;
   totalFuelT:  number;
   reqId:       number;
+  model?:      'puff';   // ใส่เฉพาะโหมด puff — ฝั่ง gaussian ไม่ใส่
 }
 
 /** สนามลมวินิจฉัยที่ถูกภูมิประเทศเบนแล้ว — array ทุกตัวขนาด N×N */
