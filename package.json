@@ -1,0 +1,16 @@
+{
+  "name": "mokhwan",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "app"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "extract:engine": "node tools/extract-engine.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "5.7.3",
+    "vitest": "3.0.5"
+  }
+}
