@@ -88,6 +88,8 @@ export interface PerHour {
   Fr?: number;
   /** ความต่างระดับในโดเมน (m) — โหมด puff เท่านั้น */
   relief?: number;
+  /** true = คำนวณบน DEM จริง — โหมด puff เท่านั้น (`terrain: !!Z` ใน runPuff) */
+  terrain?: boolean;
 }
 
 export interface RunResult {

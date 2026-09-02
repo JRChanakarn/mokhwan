@@ -5,6 +5,7 @@
   "workspaces": ["packages/*", "app"],
   "engines": { "node": ">=20" },
   "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.check.json",
     "test": "vitest run",
     "test:watch": "vitest"
   },

@@ -1,3 +1,5 @@
+import type { RunParams, Stability } from '../src/types';
+
 /**
  * ชุด RunParams สำหรับ golden test
  *
@@ -53,7 +55,7 @@ const RANGE_KM = 10, RES = 180;
 export const BG = 25;
 
 function buildCase(
-  hours: { t: string; ws: number; wdir: number; stab: string; mix: number; precip: number }[],
+  hours: { t: string; ws: number; wdir: number; stab: Stability; mix: number; precip: number }[],
   model?: 'gauss' | 'puff',
   avg = 60,
   rai = 20,
@@ -65,7 +67,7 @@ function buildCase(
   // จุดรับผลกระทบวางบนแกนท้ายลมที่ 1, 3, 8 กม. — ระยะเดียวกับเกณฑ์ puff-vs-gauss ใน HANDOFF
   const receptors: [number, number][] =
     [1000, 3000, 8000].map(d => [ux * d, uy * d] as [number, number]);
-  return {
+  const params: RunParams = {
     ...(model ? { model } : {}),
     fires: [ricePointFire(rai)],
     hours: hs,
@@ -78,6 +80,7 @@ function buildCase(
     depo: true,
     reqId: 1,
   };
+  return params;
 }
 
 /**

@@ -51,7 +51,7 @@ describe('golden — พฤติกรรมเอนจินต้องไ�
 
       // กริดทุกใบ
       expect(got.grids.length).toBe(want.grids.length);
-      got.grids.forEach((g, i) => compareGridStat(g, want.grids[i], `grids[${i}]`));
+      got.grids.forEach((g: GridStat, i: number) => compareGridStat(g, want.grids[i], `grids[${i}]`));
       compareGridStat(got.maxGrid, want.maxGrid, 'maxGrid');
       compareGridStat(got.doseGrid, want.doseGrid, 'doseGrid');
 
