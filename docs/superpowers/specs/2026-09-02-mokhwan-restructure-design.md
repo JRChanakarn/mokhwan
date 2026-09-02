@@ -242,12 +242,12 @@ export interface RunParams {
   avg:       number;              // เวลาเฉลี่ย (นาที) ใช้ปรับ σy
   depo:      boolean;             // เปิดการตกสะสมแห้ง + ชะด้วยฝน
   reqId:     number;              // ตัวกันผลค้าง ฝั่งเรียกเช็ค res.reqId เอง
-  elev?:     Float32Array;        // DEM N×N เมตร เรียงตรงกับกริด — โหมด puff เท่านั้น
+  elev?:     Float32Array | null;        // DEM N×N เมตร เรียงตรงกับกริด — โหมด puff เท่านั้น
 }
 
 export interface PerHour {
   t: string; ws: number; wdir: number; stab: Stability; mix: number;
-  precip: number; temp: number; rh: number;
+  precip: number; temp: number | null; rh: number | null;
   max: number;        // ความเข้มข้นสูงสุดระดับพื้นในชั่วโมงนี้ (µg/m³)
   maxDist: number;    // ระยะจาก origin ที่เกิดค่าสูงสุด (m)
   Hfl: number; Hsm: number;   // ความสูงพลูมประสิทธิผล เฟสเปลวไฟ / คุกรุ่น

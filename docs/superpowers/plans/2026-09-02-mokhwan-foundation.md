@@ -1638,7 +1638,7 @@ MSG
 | | ก่อน | หลัง |
 |---|---|---|
 | เอนจิน | 450 บรรทัดใน `<script type="text/plain">` โหลดด้วย `eval` | แพ็กเกจ TypeScript 8 ไฟล์ dependency เป็น DAG · build ออก esm/umd/.d.ts |
-| เทสต์ | ไม่มี | golden 6 + dist 3 + smoke 24 ข้อ |
+| เทสต์ | ไม่มี | golden 6 + dist 3 + smoke 25 ข้อ |
 | deps | cdnjs 3 ตัว | npm ล็อกเวอร์ชัน · maplibre lazy |
 | การเทสต์เอนจิน | ต้อง regex ดึงจาก HTML | `import` ปกติ |
 | แอป | 2,435 บรรทัดไฟล์เดียว | `index.html` + `styles.css` + `app.js` 1,586 บรรทัด |
