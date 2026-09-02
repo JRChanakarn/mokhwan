@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
-import { CASES, summarise, BG, type GridStat } from './fixtures';
+import { ALL_CASES, summarise, BG, type GridStat } from './fixtures';
 import expected from './golden.expected.json';
 
 // Task 2 จะเปลี่ยนเฉพาะสองบรรทัดนี้ไปเป็น: import * as ENGINE from '../src/index';
@@ -27,15 +27,18 @@ function compareGridStat(a: GridStat, b: GridStat, path: string) {
 }
 
 describe('golden — พฤติกรรมเอนจินต้องไม่ขยับจากฐานตั้งต้น', () => {
-  for (const name of Object.keys(CASES) as (keyof typeof CASES)[]) {
+  for (const name of Object.keys(ALL_CASES) as (keyof typeof ALL_CASES)[]) {
     it(name, () => {
       const want = (expected as any)[name];
-      const got = summarise(ENGINE.run(structuredClone(CASES[name])), BG);
+      const got = summarise(ENGINE.run(structuredClone(ALL_CASES[name])), BG);
 
       // รูปร่างกริด
       expect(got.N).toBe(want.N);
       for (const k of ['cell', 'cx', 'cy', 'R', 'meanUx', 'meanUy'] as const)
         closeTo(got[k], want[k], k);
+
+      // โหมดที่เอนจินเลือกใช้ — คุม dispatch ของ index.ts (Task 2)
+      expect(got.model, 'model').toBe(want.model);
 
       // ปริมาณรวม
       closeTo(got.totalEmitKg, want.totalEmitKg, 'totalEmitKg');
@@ -56,11 +59,17 @@ describe('golden — พฤติกรรมเอนจินต้องไ�
       compareGridStat(got.maxGrid, want.maxGrid, 'maxGrid');
       compareGridStat(got.doseGrid, want.doseGrid, 'doseGrid');
 
-      // จุดรับผลกระทบ
+      // จุดรับผลกระทบ — ต้องเช็กความยาวก่อนวน ไม่งั้น array ที่หดจะผ่านเงียบๆ
+      // เพราะ forEach วนแค่ดัชนีที่มีอยู่ ไม่เคยถามว่าดัชนีที่หายไปควรมีไหม
+      expect(got.recMax.length, 'recMax.length').toBe(want.recMax.length);
+      expect(got.recDose.length, 'recDose.length').toBe(want.recDose.length);
+      expect(got.recPerHour.length, 'recPerHour.length').toBe(want.recPerHour.length);
       got.recMax.forEach((v: number, i: number) => closeTo(v, want.recMax[i], `recMax[${i}]`));
       got.recDose.forEach((v: number, i: number) => closeTo(v, want.recDose[i], `recDose[${i}]`));
-      got.recPerHour.forEach((row: number[], h: number) =>
-        row.forEach((v, i) => closeTo(v, want.recPerHour[h][i], `recPerHour[${h}][${i}]`)));
+      got.recPerHour.forEach((row: number[], h: number) => {
+        expect(row.length, `recPerHour[${h}].length`).toBe(want.recPerHour[h].length);
+        row.forEach((v, i) => closeTo(v, want.recPerHour[h][i], `recPerHour[${h}][${i}]`));
+      });
     });
   }
 });

@@ -27,7 +27,7 @@ function ricePointFire(rai: number) {
   };
 }
 
-/** เหมือน hourWeights() — บรรทัด 244–249 ของบล็อกแอป (= 1109–1114 ของไฟล์ตั้งต้น) */
+/** เหมือน hourWeights() — บรรทัด 259–264 ของบล็อกแอป (= 1124–1129 ของไฟล์ตั้งต้น) */
 function hourWeights(n: number) {
   const w: number[] = [], p: number[] = [];
   let s = 0;
@@ -55,6 +55,8 @@ export const BG = 25;
 function buildCase(
   hours: { t: string; ws: number; wdir: number; stab: string; mix: number; precip: number }[],
   model?: 'gauss' | 'puff',
+  avg = 60,
+  rai = 20,
 ) {
   const hs = hours.map(h => ({ ...h, dt: 3600, temp: null, rh: null }));
   const { w, p } = hourWeights(hs.length);
@@ -65,17 +67,36 @@ function buildCase(
     [1000, 3000, 8000].map(d => [ux * d, uy * d] as [number, number]);
   return {
     ...(model ? { model } : {}),
-    fires: [ricePointFire(20)],
+    fires: [ricePointFire(rai)],
     hours: hs,
     weights: w,
     progress: p,
     grid: { N: RES, R, cx: 0.32 * R * ux, cy: 0.32 * R * uy },
     receptors,
     bg: BG,
-    avg: 60,
+    avg,
     depo: true,
     reqId: 1,
   };
+}
+
+/**
+ * ภูมิประเทศสังเคราะห์จาก HANDOFF-terrain-mode.md — แอ่งกลาง + สันเขาขวางทาง
+ * ตะวันตกเฉียงใต้ นิยามในพิกัดของกริด (grid-local) ให้ตรงกับที่ HANDOFF เขียนไว้
+ */
+function syntheticDem(N: number, R: number): Float32Array {
+  const cell = 2 * R / N;
+  const Z = new Float32Array(N * N);
+  for (let j = 0; j < N; j++) {
+    for (let i = 0; i < N; i++) {
+      const x = -R + (i + 0.5) * cell, y = R - (j + 0.5) * cell;
+      Z[j * N + i] = Math.max(0,
+          300
+        + 620 * Math.exp(-Math.pow((x * 0.7071 + y * 0.7071 + 3500) / 1800, 2))  // สันเขา
+        - 140 * Math.exp(-(x * x + y * y) / (2 * 2600 * 2600)));                  // แอ่ง
+    }
+  }
+  return Z;
 }
 
 export const CASES = {
@@ -89,13 +110,67 @@ export const CASES = {
     { t: '2026-03-15T13:00', ws: 2.0, wdir: 35, stab: 'B', mix: 1800, precip: 0 },
   ]),
 
-  /** สามชั่วโมง เปลี่ยนความเสถียร + มีฝนชั่วโมงสุดท้าย เพื่อออกกำลังการชะด้วยฝนและ doseGrid */
+  /** สามชั่วโมง เปลี่ยนความเสถียร + มีฝนชั่วโมงสุดท้าย เพื่อออกกำลังการชะด้วยฝน */
   multi3h: buildCase([
     { t: '2026-03-15T06:00', ws: 1.4, wdir: 35, stab: 'F', mix: 180,  precip: 0 },
     { t: '2026-03-15T07:00', ws: 1.8, wdir: 50, stab: 'E', mix: 400,  precip: 0 },
     { t: '2026-03-15T08:00', ws: 2.4, wdir: 70, stab: 'D', mix: 900,  precip: 1.2 },
   ]),
+
+  /**
+   * เผายาว 6 ชม. ลมทิศคงที่ — มีไว้ให้ค่าเฉลี่ย 24 ชม. สูงพอข้ามเกณฑ์ 37.5
+   *
+   * ถ้าไม่มีเคสนี้ `doseGrid.over` / `.overMaxKm` / `.truncated` เป็น 0/0/false
+   * ในทุกเคส = สามฟิลด์ที่เช็กแล้วแดงไม่ได้เลย
+   *
+   * ตัวแปรที่ใช้ได้คือ **ทิศลมคงที่** ไม่ใช่พื้นที่หรือระยะเวลา
+   *   - เพิ่มเวลาเฉยๆ ไม่ช่วย เพราะ `weights` normalize เป็น 1 มวลรวมคงที่
+   *     เผายาวขึ้น = มวลเดิมกระจายหลายชั่วโมง ความเข้มข้นรายชั่วโมงลดลงตามกัน
+   *   - เพิ่มพื้นที่ยิ่งแย่ เพราะ `sy0` โตตาม `side` พีคเจือจาง
+   *     (ทดลองแล้ว 120 ไร่ ได้ dose 9.69 น้อยกว่า 20 ไร่ ที่ได้ 10.35)
+   *   - ทิศลมคงที่ทำให้ dose สะสมลงเซลล์เดิมทั้ง 6 ชั่วโมง
+   *     (เวอร์ชันที่ทิศลมกวาด 35°→50° ได้แค่ 9.69 · ทิศคงที่ได้ ~18)
+   */
+  long6h: buildCase([
+    { t: '2026-03-15T02:00', ws: 1.2, wdir: 35, stab: 'F', mix: 150, precip: 0 },
+    { t: '2026-03-15T03:00', ws: 1.2, wdir: 35, stab: 'F', mix: 150, precip: 0 },
+    { t: '2026-03-15T04:00', ws: 1.3, wdir: 35, stab: 'F', mix: 160, precip: 0 },
+    { t: '2026-03-15T05:00', ws: 1.3, wdir: 35, stab: 'F', mix: 170, precip: 0 },
+    { t: '2026-03-15T06:00', ws: 1.4, wdir: 35, stab: 'F', mix: 180, precip: 0 },
+    { t: '2026-03-15T07:00', ws: 1.5, wdir: 35, stab: 'E', mix: 260, precip: 0 },
+  ]),
 };
+
+/**
+ * เคสโหมด puff — ครอบ `runPuff` และ `windField` ที่โหมด gaussian ไปไม่ถึงเลย
+ *
+ * **ล็อกพฤติกรรมที่รู้อยู่ว่ายังผิด** HANDOFF-terrain-mode.md ข้อ 1 ระบุว่าโหมด puff
+ * บนภูมิประเทศให้ความเข้มข้นระดับพื้นเป็นศูนย์ ซึ่งเป็นบั๊กที่ยังไม่แก้
+ *
+ * ที่ล็อกไว้ไม่ใช่เพราะคิดว่าถูก แต่เพราะงานรื้อโครงต้องพิสูจน์ได้ว่า **ไม่เปลี่ยนอะไรเลย**
+ * รวมทั้งไม่เปลี่ยนสิ่งที่ยังผิด ถ้าไม่ล็อก การย้าย runPuff 167 บรรทัดกับ windField
+ * 62 บรรทัดจะไม่มีอะไรคุ้มกันเลย ซึ่งเป็นก้อนที่ใหญ่และเสี่ยงที่สุดในแผน
+ *
+ * **ก้าว 5 จะทำให้เทสต์สองเคสนี้แดงโดยตั้งใจ** ตอนแก้บั๊ก ตอนนั้นค่าอ้างอิงของสองเคสนี้
+ * ต้องอัปเดตพร้อมกับคำอธิบายว่าเปลี่ยนเพราะอะไร — เป็นการเปลี่ยนที่ตั้งใจ ไม่ใช่การย้ายพลาด
+ */
+export const PUFF_CASES = {
+  /** พื้นราบ (ไม่มี elev) — ออกกำลังทางแยก Z=null ของ windField */
+  puffFlat: buildCase([
+    { t: '2026-03-15T06:00', ws: 1.3, wdir: 35, stab: 'F', mix: 180, precip: 0 },
+  ], 'puff'),
+
+  /** ภูมิประเทศสังเคราะห์ — ออกกำลังสนามลมวินิจฉัยเต็มเส้นทาง */
+  puffTerrain: (() => {
+    const c = buildCase([
+      { t: '2026-03-15T06:00', ws: 1.3, wdir: 45, stab: 'F', mix: 180, precip: 0 },
+    ], 'puff');
+    return { ...c, elev: syntheticDem(c.grid.N, c.grid.R) };
+  })(),
+};
+
+/** ทุกเคสรวมกัน — golden test วนทั้งหมดนี้ */
+export const ALL_CASES = { ...CASES, ...PUFF_CASES };
 
 export interface GridStat {
   sum: number;
@@ -103,8 +178,12 @@ export interface GridStat {
   over: number;
   overMaxKm: number;
   /**
-   * true = มีเซลล์ที่เกินเกณฑ์แตะขอบนอกสุดของกริด แปลว่า overMaxKm ถูกขอบโดเมนตัด
-   * ไม่ใช่ระยะจริงของกลุ่มควัน ค่านี้ถูกล็อกไว้ด้วยเพื่อไม่ให้ใครอ่าน overMaxKm ผิด
+   * true = มีเซลล์ที่เกินเกณฑ์อยู่บนขอบนอกสุดของกริด
+   *
+   * เป็นสัญญาณเตือนว่า `overMaxKm` **อาจ**ถูกขอบโดเมนตัด ไม่ใช่ระยะจริงของกลุ่มควัน
+   * ไม่ใช่การรับประกันเชิงตรรกะ — ถ้าควันมีหลายกลีบ เซลล์ที่แตะขอบอาจเป็นกลีบหนึ่ง
+   * ขณะที่เซลล์ไกลสุดจริงอยู่ด้านใน ให้ถือเป็น "ต้องไปดูให้แน่" ไม่ใช่ข้อสรุป
+   * ล็อกไว้ในค่าอ้างอิงเพื่อไม่ให้ใครอ่าน overMaxKm ผิดโดยไม่รู้ตัว
    */
   truncated: boolean;
 }
@@ -137,6 +216,10 @@ export function summarise(res: any, bg: number) {
   };
   return {
     N, cell, cx, cy, R,
+    // runPuff ใส่ model:'puff' ฝั่ง gaussian ไม่ใส่ (ความไม่สมมาตรที่มีมาแต่เดิม)
+    // เก็บไว้เพื่อคุม dispatch ที่ index.ts ของ Task 2 จะเป็นเจ้าของ
+    // เคส gaussian ได้ undefined ซึ่ง JSON.stringify ตัดทิ้ง ค่าอ้างอิงเดิมจึงไม่ขยับ
+    model: res.model,
     meanUx: res.meanUx, meanUy: res.meanUy,
     totalEmitKg: res.totalEmitKg, totalFuelT: res.totalFuelT,
     perHour: res.perHour.map((h: any) => ({ ...h })),
