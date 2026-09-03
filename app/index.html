@@ -161,14 +161,16 @@
     <button class="btn" id="bRidge" title="ลดระดับกล้องลงใกล้พื้นให้เห็นสันเขา">มุมมองภูเขา</button>
     <label class="chk" style="padding:0;margin-top:7px"><input type="checkbox" id="trueScale"> โหมดข้อมูลจริง</label>
     <div id="truenote" style="color:var(--faint);font-size:10.8px;margin:2px 0 7px;line-height:1.45"></div>
-    <label>ยกภูมิประเทศ <b id="exagtxt">1.5×</b></label>
-    <input id="exag" type="range" min="1" max="3" step="0.1" value="1.5">
-    <label>ยกความสูงควัน <b id="pexagtxt">4×</b></label>
-    <input id="pexag" type="range" min="1" max="12" step="0.5" value="4">
+    <div id="exagRow">
+      <label>ยกภูมิประเทศ <b id="exagtxt">1.5×</b></label>
+      <input id="exag" type="range" min="1" max="3" step="0.1" value="1.5">
+      <label>ยกความสูงควัน <b id="pexagtxt">4×</b></label>
+      <input id="pexag" type="range" min="1" max="12" step="0.5" value="4">
+    </div>
     <label>ความทึบควัน <b id="smokeopatxt">55%</b></label>
     <input id="smokeopa" type="range" min="0.1" max="1" step="0.05" value="0.55">
     <label class="chk" style="padding:0"><input type="checkbox" id="showGroundLayer" checked> ทาบชั้นควันบนพื้น</label>
-    <div style="color:var(--faint);font-size:10.8px;margin-top:7px;line-height:1.45">
+    <div id="exagnote" style="color:var(--faint);font-size:10.8px;margin-top:7px;line-height:1.45">
       ความสูงควันถูกยกไว้เพื่อให้มองเห็น ตัวเลขจริงดูได้ในแท็บรายชั่วโมง</div>
   </div>
 

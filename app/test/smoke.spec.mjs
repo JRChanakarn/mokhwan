@@ -427,8 +427,25 @@ const ts = await page.evaluate(() => ({
   wxMode: window.__MOKHWAN__.S.wxMode,
   note: document.getElementById('truenote').textContent,
   height: window.__MOKHWAN__.plumeVolume().features.map(f => f.properties.height) }));
+// ชั้น hillshade คือตัวที่ทำให้ "เห็นความชัน" — ภาพดาวเทียมของ Esri แทบไม่มีเงา
+// ต่อให้ terrain ทำงานถูก ลาดชันก็อ่านไม่ออกถ้าไม่มีชั้นนี้
+const hs = await page.evaluate(() => {
+  const m3 = window.__MOKHWAN__.m3;
+  const t = m3 && m3.getTerrain && m3.getTerrain();
+  return { hillshade: !!(m3 && m3.getLayer('hillshade')),
+           terrain: !!t, terrainSrc: t && t.source,
+           order: m3 ? m3.getStyle().layers.map(l => l.id) : [] };
+});
+check(hs.hillshade, 'มีชั้น hillshade ทับภาพดาวเทียม');
+check(hs.terrain && hs.terrainSrc === 'dem', 'เปิดภูมิประเทศจาก DEM จริง');
+check(hs.order.indexOf('hillshade') > hs.order.indexOf('sat') &&
+      hs.order.indexOf('hillshade') < hs.order.indexOf('vol-edge'),
+      'ชั้น hillshade อยู่เหนือภาพดาวเทียมแต่ใต้ก้อนควัน');
+
 check(ts.exag === 1 && ts.pexag === 1, `โหมดข้อมูลจริงตั้งสัดส่วนเป็น 1:1 (จาก ${tsBefore.exag}× / ${tsBefore.pexag}×)`);
 check(ts.locked, 'ล็อกสไลเดอร์ที่เป็นการยกเพื่อมองเห็นไว้');
+check(await page.evaluate(() => document.getElementById('exagRow').style.display === 'none'),
+      'ซ่อนแถวสไลเดอร์การยกไปเลย ไม่ให้บังวิวภูเขา');
 check(ts.model === 'puff' && ts.useWind === true && ts.wxMode === 'auto',
       'บังคับใช้ DEM จริง สนามลมจริง และพยากรณ์จริง');
 check(/วัดมาจริง/.test(ts.note) && /คำนวณจากแบบจำลอง/.test(ts.note),

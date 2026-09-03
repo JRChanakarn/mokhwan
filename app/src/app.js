@@ -1117,6 +1117,17 @@ function init3D(){
       layers: [
         {id:'bg', type:'background', paint:{'background-color':'#1d2836'}},
         {id:'sat', type:'raster', source:'sat'},
+        // เงาเขาจาก DEM ตัวเดียวกับที่ใช้ทำภูมิประเทศ — ตัวนี้แหละที่ทำให้ "เห็นความชัน"
+        // ภาพดาวเทียมของ Esri ถ่ายตอนแสงตั้งฉาก แทบไม่มีเงา ลาดชันจึงอ่านไม่ออก
+        // ต่อให้ terrain ทำงานถูกทุกอย่าง · ทับด้วยเงาคำนวณแล้วสันเขากับร่องเขาเด้งขึ้นมาทันที
+        {id:'hillshade', type:'hillshade', source:'dem',
+        // ใช้สีแบบมีอัลฟา ไม่ใช่สีทึบ — สีทึบจะฟอกภาพดาวเทียมจนกลายเป็นแบบจำลองสีเทา
+        // ที่ต้องการคือเพิ่ม**เงา**ให้ด้านที่หันหนีแสง แล้วเน้นสว่างเบาๆ ด้านรับแสง
+         paint:{'hillshade-exaggeration':0.5,
+                'hillshade-shadow-color':'rgba(8,16,26,0.55)',
+                'hillshade-highlight-color':'rgba(255,246,224,0.16)',
+                'hillshade-accent-color':'rgba(0,0,0,0)',
+                'hillshade-illumination-anchor':'map', 'hillshade-illumination-direction':315}},
         {id:'plumeimg', type:'raster', source:'plumeimg', paint:{'raster-opacity':0.75}},
         {id:'plots-fill', type:'fill', source:'plots', paint:{'fill-color':'#e0553f','fill-opacity':0.55}},
         {id:'plots-line', type:'line', source:'plots', paint:{'line-color':'#ff8a6a','line-width':2}},
@@ -1281,10 +1292,29 @@ $('showGroundLayer').onchange = update3D;
 $('bRidge').onclick = () => {
   if(!m3) return;
   const h = S.result && S.result.perHour[S.hourIndex];
-  const c = S.origin || map.getCenter();
+  const c = plumeCentroid() || S.origin || map.getCenter();
   m3.easeTo({center:[c.lng, c.lat], bearing: h ? (h.wdir + 180) % 360 : m3.getBearing(),
-             pitch:79, zoom: Math.max(12.4, m3.getZoom()), duration:1100});
+             pitch:79, zoom: Math.max(12.6, m3.getZoom()), duration:1100});
 };
+
+/* จุดศูนย์กลางมวลของควันในชั่วโมงที่เลือก ถ่วงด้วยความเข้มข้นจริง
+   เล็งกล้องที่กองไฟจะได้ควันไปกองอยู่ไกลใกล้ขอบฟ้า เพราะควันลอยออกไปตามลม */
+function plumeCentroid(){
+  const r = S.result, o = S.origin;
+  if(!r || !o) return null;
+  const g = r.grids[S.hourIndex] || r.grids[0];
+  if(!g) return null;
+  const N = r.N, cell = r.cell;
+  let sw = 0, sx = 0, sy = 0;
+  for(let j=0;j<N;j++) for(let i=0;i<N;i++){
+    const w = g[j*N+i];
+    if(w < 1) continue;
+    sw += w;
+    sx += w*(r.cx - r.R + (i+0.5)*cell);
+    sy += w*(r.cy + r.R - (j+0.5)*cell);
+  }
+  return sw > 0 ? toLL(sx/sw, sy/sw, o) : null;
+}
 
 /* โหมดข้อมูลจริง — ปิดตัวคูณที่มีไว้เพื่อการมองเห็นทุกตัว แล้วบังคับใช้ข้อมูลที่วัดมาจริง
 
@@ -1307,6 +1337,9 @@ function setTrueScale(on){
   }
   ex.disabled = pe.disabled = on;
   ex.oninput(); pe.oninput();                     // อัปเดตป้าย ภูมิประเทศ และก้อนควัน
+  // ซ่อนไปเลยแทนที่จะโชว์แบบเทาๆ — มันล็อกที่ 1 อยู่แล้ว และแผงนี้บังวิวภูเขาไปมาก
+  $('exagRow').style.display = on ? 'none' : '';
+  $('exagnote').style.display = on ? 'none' : '';
   $('trueScale').checked = on;
   $('truenote').innerHTML = on
     ? '<b>วัดมาจริง</b> ความสูงภูมิประเทศ (AWS Terrain Tiles) · ลมรายจุดกับอากาศ (Open-Meteo) · ภาพดาวเทียม<br>' +
@@ -1760,5 +1793,7 @@ setWxStatus('ยังไม่ได้ดึงข้อมูล — วา�
    วิธีทดสอบ UI ที่ HANDOFF เขียนไว้ (page.evaluate เรียก S / addPlot ตรงๆ) จะพังทันที
    จึงเปิดช่องทางที่ตั้งใจไว้ ใช้ได้ตอน dev หรือใส่ ?debug ใน URL */
 if(import.meta.env.DEV || new URLSearchParams(location.search).has('debug')){
-  window.__MOKHWAN__ = { S, addPlot, setWxMode, setModel, syncAllInputs, runSim, engineRun, map, plumeVolume };
+  // m3 เป็น let ที่ถูกสร้างทีหลัง จึงต้องเป็น getter ไม่ใช่ค่าที่ snapshot ไว้ตอน boot
+  window.__MOKHWAN__ = { S, addPlot, setWxMode, setModel, syncAllInputs, runSim, engineRun, map,
+                         plumeVolume, get m3(){ return m3; } };
 }
