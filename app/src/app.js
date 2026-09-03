@@ -1174,34 +1174,41 @@ function update3D(){
   }catch(e){ /* style ยังไม่พร้อม */ }
 }
 
-/* รอให้แผนที่ 3 มิติพร้อมด้วย event ของ maplibre แทนการ poll
-   ของเดิมยิง m3.resize() ทุก 150 มิลลิวินาที สูงสุด 40 รอบ เพื่อรอ isStyleLoaded()
-   ซึ่งกับแผนที่ที่เปิดภูมิประเทศไว้ resize() หนักพอที่จะทำให้ main thread ตัน
-   30-60 วินาที แท็บไม่ตอบสนอง และถ่ายภาพหน้าจอไม่ได้เลย
+/* รอให้แผนที่ 3 มิติพร้อม
 
-   ตรงนี้ผูกกับ 'load' (สไตล์พร้อมและวาดเฟรมแรกแล้ว) โดยเช็ค loaded() ก่อนเผื่อยิงไปแล้ว
-   ยัง resize() ครั้งเดียวหลังพร้อม เพราะเผื่อกรณีคอนเทนเนอร์เพิ่งได้ขนาดจริง */
+   ของเดิมยิง m3.resize() ทุก 150 มิลลิวินาที สูงสุด 40 รอบ ตัวที่ทำให้ main thread ตัน
+   30-60 วินาทีคือ resize() ไม่ใช่การ poll เอง — resize ของแผนที่ที่เปิดภูมิประเทศไว้
+   บังคับให้คำนวณและวาดใหม่ทั้งฉาก
+
+   เงื่อนไขพร้อมยังเป็น isStyleLoaded() เหมือนเดิม ไม่ใช้ 'load'/'idle' เพราะสองตัวนั้น
+   รอจนไทล์โหลดครบ ซึ่งกับภูมิประเทศจริงกินเวลาเกิน 30 วินาที ทั้งที่แผนที่วาดได้แล้ว
+   ผูก event เป็นทางหลัก แล้วมี poll เบาๆ 400 มิลลิวินาทีเป็นตัวสำรอง (แค่อ่านสถานะ
+   ไม่เรียก resize) เผื่อ styledata หยุดยิงก่อนสไตล์พร้อม */
 function await3D(w3){
   if(!m3) return;
   let done = false;
+  const ready = () => !!m3 && m3.isStyleLoaded() && m3.getCanvas().width > 100;
   const finish = () => {
-    if(done || !m3) return;
+    if(done || !ready()) return;
     done = true;
-    clearTimeout(bail); m3.off('load', finish); m3.off('idle', finish);
-    m3.resize(); update3D(); diag(null);
+    clearTimeout(bail); clearInterval(poll);
+    m3.off('styledata', finish); m3.off('load', finish);
+    m3.resize();                       // ครั้งเดียวหลังพร้อม เผื่อคอนเทนเนอร์เพิ่งได้ขนาดจริง
+    update3D(); diag(null);
   };
   const bail = setTimeout(() => {
     if(done || !m3) return;
     done = true;
-    m3.off('load', finish); m3.off('idle', finish);
+    clearInterval(poll); m3.off('styledata', finish); m3.off('load', finish);
     const cv = m3.getCanvas();
     diag('<b>แผนที่ 3 มิติเริ่มไม่สำเร็จ</b><br>ขนาดภาพวาด ' + cv.width + '×' + cv.height +
          ' · คอนเทนเนอร์กว้าง ' + w3 + 'px · สไตล์พร้อม ' + (m3.isStyleLoaded() ? 'ใช่' : 'ไม่') +
          ' · ชิ้นส่วนควัน ' + plumeVolume().features.length +
          '<br>ลองกด 2D แล้วกด 3D ใหม่ ถ้ายังไม่ขึ้นให้กด <code>Cmd+Shift+R</code>');
   }, 25000);
-  if(m3.loaded()) finish();
-  else { m3.on('load', finish); m3.on('idle', finish); }   // idle เป็นตัวสำรองถ้า load ยิงไปก่อนผูก
+  const poll = setInterval(finish, 400);
+  m3.on('styledata', finish); m3.on('load', finish);
+  finish();
 }
 
 async function set3D(on){
