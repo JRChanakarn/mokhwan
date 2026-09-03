@@ -36,9 +36,27 @@ export function windField(Z: Float32Array | null, N: number, cell: number, H: Ho
   var ud = new Float32Array(K), vd = new Float32Array(K);
   var th = (270 - H.wdir)*Math.PI/180;
   var u0 = H.ws*Math.cos(th), v0 = H.ws*Math.sin(th);
-  var spd0 = Math.max(H.ws, 0.3), st = H.stab;
+  var st = H.stab;
 
-  if(!Z){ u.fill(u0); v.fill(v0); return {u:u, v:v, ud:ud, vd:vd, relief:0, Fr:99, block:0}; }
+  // สนามลมรายเซลล์ถ้ามี (ดู types.ts HourWx.windU) ไม่งั้นใช้ค่าเดียวทั้งโดเมน
+  var hasGrid = !!(H.windU && H.windV && H.windU.length === K && H.windV.length === K);
+  var gu = hasGrid ? (H.windU as Float32Array) : u;    // ผูกให้ tsc รู้ว่าไม่ null · ใช้จริงเมื่อ hasGrid เท่านั้น
+  var gv = hasGrid ? (H.windV as Float32Array) : v;
+
+  // ความเร็วอ้างอิงสำหรับตัวเลขระดับโดเมน (Fr, ลมไหลลงลาด, เพดาน/พื้นของการหนีบ)
+  // ใช้ค่าเฉลี่ยของกริดเมื่อมีสนามลม เพื่อให้ตัวเลขวินิจฉัยสอดคล้องกับลมที่ใช้จริง
+  var spd0;
+  if(hasGrid){
+    var sacc = 0;
+    for(var qs=0; qs<K; qs++) sacc += Math.hypot(gu[qs], gv[qs]);
+    spd0 = Math.max(sacc/K, 0.3);
+  } else spd0 = Math.max(H.ws, 0.3);
+
+  if(!Z){
+    if(hasGrid){ u.set(gu); v.set(gv); }
+    else { u.fill(u0); v.fill(v0); }
+    return {u:u, v:v, ud:ud, vd:vd, relief:0, Fr:99, block:0};
+  }
 
   var dth = DTHETA[st] || 0;
   var Nb  = dth > 0 ? Math.sqrt(9.81/293*dth) : 0;
@@ -60,7 +78,8 @@ export function windField(Z: Float32Array | null, N: number, cell: number, H: Ho
       var gx = (Z[j*N+iR] - Z[j*N+iL])/((iR-iL)*cell);
       var gy = (Z[jU*N+i] - Z[jD*N+i])/((jD-jU)*cell);
       var gm = Math.hypot(gx, gy);
-      var uu = u0, vv = v0;
+      var uu = hasGrid ? gu[k2] : u0, vv = hasGrid ? gv[k2] : v0;
+      var spdLocal = hasGrid ? Math.max(Math.hypot(uu, vv), 0.3) : spd0;
 
       if(gm > 1e-4){
         var nx = gx/gm, ny = gy/gm;                    // ชี้ขึ้นเนิน
@@ -68,8 +87,9 @@ export function windField(Z: Float32Array | null, N: number, cell: number, H: Ho
         var sgn = (uu*tx + vv*ty) >= 0 ? 1 : -1;
         var f = block*Math.min(1, gm/0.06);
         // หมุนทิศให้ขนานสันเขา โดยรักษาความเร็วไว้ ไม่ใช่หักลบจนพลิกทิศ
-        uu = uu*(1-f) + tx*sgn*spd0*f;
-        vv = vv*(1-f) + ty*sgn*spd0*f;
+        // ใช้ความเร็วของเซลล์นั้นเมื่อมีสนามลม ไม่งั้นลมแรง-เบาในโดเมนจะถูกกลืนเป็นค่าเดียว
+        uu = uu*(1-f) + tx*sgn*spdLocal*f;
+        vv = vv*(1-f) + ty*sgn*spdLocal*f;
         if(drainK > 0){
           var d = drainK*Math.min(1, gm/0.10);
           ud[k2] = -nx*d; vd[k2] = -ny*d;
@@ -81,10 +101,14 @@ export function windField(Z: Float32Array | null, N: number, cell: number, H: Ho
         uu *= sh; vv *= sh;
       }
       var sp = Math.hypot(uu, vv);
-      var lo = Math.max(0.25, 0.15*spd0), hi = 1.8*spd0;
+      var ref = hasGrid ? spdLocal : spd0;
+      var lo = Math.max(0.25, 0.15*ref), hi = 1.8*ref;
       if(sp < lo || sp > hi){
         var target = sp < lo ? lo : hi;
-        if(sp < 1e-6){ uu = u0/spd0*target; vv = v0/spd0*target; }
+        if(sp < 1e-6){
+          if(hasGrid){ uu = target; vv = 0; }        // ลมเป็นศูนย์สนิท ไม่มีทิศให้รักษา
+          else { uu = u0/spd0*target; vv = v0/spd0*target; }
+        }
         else { uu = uu/sp*target; vv = vv/sp*target; }
       }
       u[k2] = uu; v[k2] = vv;

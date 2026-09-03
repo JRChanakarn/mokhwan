@@ -6,6 +6,7 @@ import { run as engineRunSync } from 'mokhwan-engine';
 import EngineWorker from 'mokhwan-engine/worker?worker';
 import { loadDem } from './services/dem.js';
 import { showTerrain, clearTerrain } from './map2d/terrain.js';
+import { attachWindField } from './services/wind-grid.js';
 
 'use strict';
 const $ = id => document.getElementById(id);
@@ -49,7 +50,7 @@ const S = {
   bg:25, bgAuto:false, bgSeries:null, avg:60, rangeKm:10, res:180, pop:180, opacity:0.6, depo:true,
   view:'hour', hourIndex:0, tab:'sum',
   result:null, origin:null, computing:false,
-  model:'gauss', dem:null, progress:null, wsFloor:1.0,   // ก้าว 5: โหมดแบบจำลอง · DEM ที่โหลดได้ · ความคืบหน้ารายชั่วโมง
+  model:'gauss', dem:null, progress:null, wsFloor:1.0, useWind:false, windInfo:null,   // ก้าว 5: โหมดแบบจำลอง · DEM ที่โหลดได้ · ความคืบหน้ารายชั่วโมง
 };
 (function initDate(){
   const d = new Date();
@@ -361,6 +362,19 @@ async function runSim(){
     // (ขนาด N₂²) จะไม่ถูกเอาไปวาดคู่กับผลเก่าที่ยังเป็น N₁ (code review จับได้)
     S.dem = {...dem, reqId:payload.reqId};
     if(dem.ok) payload.elev = dem.elev;
+
+    // สนามลมจริงรายจุด — เป็นตัวเลือก ปิดไว้ก็ได้พฤติกรรมเดิมเป๊ะ
+    if(S.useWind){
+      S.windInfo = {loading:true}; renderPanel();
+      try{
+        if(!windGrid) await fetchWindGrid();
+        if(payload.reqId !== reqSeq) return;
+        S.windInfo = {ok:true, ...attachWindField(payload.hours, windGrid, payload.grid, origin)};
+      }catch(e){
+        if(payload.reqId !== reqSeq) return;
+        S.windInfo = {ok:false, reason: netFail('สนามลม Open-Meteo', e)};
+      }
+    }else S.windInfo = null;
   }else{
     S.dem = null;
   }
@@ -641,6 +655,7 @@ async function fetchOsm(){
 /* ---------------- panel ---------------- */
 function renderPanel(){
   renderDemStatus();
+  renderWindStatus();
   const el = $('pbody');
   // S.result ไม่ถูกล้างระหว่างรัน ถ้าเช็ค !S.result ข้อความความคืบหน้าจะขึ้นแค่ครั้งแรก
   // ของทั้งเซสชัน — กรณีที่ต้องการมันที่สุด (สลับจาก gaussian ไป puff ที่ช้ากว่า) จะไม่เห็นเลย
@@ -823,7 +838,9 @@ function toggleGibs(kind, on){
 async function fetchWindGrid(){
   const c = fireCentroid();
   if(!c) throw new Error('ยังไม่มีแปลงเผา');
-  const n = 6, R = S.rangeKm*1000;
+  // ครอบ 1.4R เท่ากับ DEM ไม่ใช่ R เฉยๆ เพราะกริดเอนจินเลื่อนศูนย์กลางไปทางท้ายลม 0.32R
+  // จึงกินไกลถึง 1.32R ถ้าครอบแค่ R ขอบท้ายลม 16% ของแกนจะได้ลมค่าขอบแบบ clamp
+  const n = 6, R = 1.4*S.rangeKm*1000;
   const lats = [], lngs = [], pts = [];
   for(let j=0;j<n;j++) lats.push(c.lat + (-R + 2*R*j/(n-1))/M_LAT);
   for(let i=0;i<n;i++) lngs.push(c.lng + (-R + 2*R*i/(n-1))/mLon(c.lat));
@@ -1398,7 +1415,7 @@ function saveScenario(){
       latlngs: p.latlngs ? p.latlngs.map(c => [c.lat,c.lng]) : null})),
     receptors:S.receptors.map(r => ({name:r.name, kind:r.kind, src:r.src, ll:[r.ll.lat,r.ll.lng]})),
     date:S.date, time:S.time, dur:S.dur, bg:S.bg, bgAuto:S.bgAuto, man:S.man, wxMode:S.wxMode,
-    rangeKm:S.rangeKm, res:S.res, pop:S.pop, depo:S.depo, model:S.model, wsFloor:S.wsFloor, center:[map.getCenter().lat,map.getCenter().lng], zoom:map.getZoom()};
+    rangeKm:S.rangeKm, res:S.res, pop:S.pop, depo:S.depo, model:S.model, wsFloor:S.wsFloor, useWind:S.useWind, center:[map.getCenter().lat,map.getCenter().lng], zoom:map.getZoom()};
   download('smoke-scenario.json', JSON.stringify(data,null,1), 'application/json');
 }
 function loadScenario(txt){
@@ -1415,6 +1432,7 @@ function loadScenario(txt){
       pop:d.pop??180, depo:d.depo!==false});
     if(d.center) map.setView(d.center, d.zoom||13);
     S.wsFloor = typeof d.wsFloor === 'number' ? d.wsFloor : 1.0;
+    S.useWind = !!d.useWind;
     setModel(d.model === 'puff' ? 'puff' : 'gauss');
     syncAllInputs(); redrawPlots(); redrawRecs(); syncEditor(); schedule();
   }catch(e){ alert('ไฟล์ไม่ถูกต้อง: ' + e.message); }
@@ -1494,6 +1512,19 @@ $('btime').onchange = () => { S.time = $('btime').value; schedule(); };
 $('bdur').oninput   = () => { S.dur = Math.max(1, Math.min(12, +$('bdur').value||1)); S.hourIndex = 0; schedule(); };
 
 /* สถานะ DEM ใต้ปุ่มเลือกแบบจำลอง — แหล่ง · ความละเอียด · ต่างระดับ · Froude รายชั่วโมง */
+/* สถานะสนามลมจริง — บอกตรงๆ ว่าหยาบแค่ไหน ไม่ขายเกินจริง */
+function renderWindStatus(){
+  const el = $('windstat'); if(!el) return;
+  const w = S.windInfo;
+  if(S.model !== 'puff' || !S.useWind || !w){ el.innerHTML = ''; return; }
+  if(w.loading){ el.innerHTML = '<div class="hint"><span class="spin"></span> กำลังดึงสนามลม…</div>'; return; }
+  if(!w.ok){ el.innerHTML = '<div class="warnbox">' + w.reason + '<br>ใช้ลมค่าเดียวต่อชั่วโมงแทน</div>'; return; }
+  if(!w.hours){ el.innerHTML = '<div class="warnbox">ไม่มีข้อมูลลมของชั่วโมงที่เลือก — ใช้ลมค่าเดียวแทน</div>'; return; }
+  el.innerHTML = '<div class="hint">สนามลมจริง ' + w.hours + '/' + w.total + ' ชั่วโมง · ลมเฉลี่ย ' +
+    fmt(w.meanWs,1) + ' ม./วิ · ต่างกันในโดเมน ' + fmt(w.spread,1) + ' ม./วิ' +
+    '<br><b>ระยะห่างจุดข้อมูล ~4 กม.</b> จับการไล่ระดับของลมระดับใหญ่ ไม่ใช่ลมในหุบ ' +
+    'ลมในหุบมาจากการที่ภูมิประเทศเบนสนามลมนี้อีกที</div>';
+}
 function renderDemStatus(){
   const el = $('demstat'); if(!el) return;
   if(S.model !== 'puff'){ el.innerHTML = ''; return; }
@@ -1535,6 +1566,7 @@ function setWxMode(m){
   if(m==='man') $('wxsrc').textContent = 'กำหนดเอง';
   schedule();
 }
+$('useWind').onchange = () => { S.useWind = $('useWind').checked; S.windInfo = null; schedule(); };
 $('wsfloor').oninput = () => {
   S.wsFloor = +$('wsfloor').value;
   $('wsfloortxt').textContent = S.wsFloor === 0 ? 'ปิด' : fmt(S.wsFloor,1) + ' ม./วิ';
@@ -1658,6 +1690,7 @@ function syncAllInputs(){
   $('wdir').value = S.man.wdir; $('wspd').value = S.man.ws; $('stab').value = S.man.stab; $('mix').value = S.man.mix;
   $('wdtxt').textContent = S.man.wdir + '° ' + compass(S.man.wdir);
   $('wstxt').textContent = fmt(S.man.ws,1) + ' ม./วิ';
+  $('useWind').checked = S.useWind;
   $('wsfloor').value = S.wsFloor;
   $('wsfloortxt').textContent = S.wsFloor === 0 ? 'ปิด' : fmt(S.wsFloor,1) + ' ม./วิ';
   setWxMode(S.wxMode);

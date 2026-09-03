@@ -229,6 +229,22 @@ await page.route('**/*', route => {
   if (APP_HOSTS.has(u.hostname)) return route.continue();
   externalHosts.set(u.hostname, (externalHosts.get(u.hostname) ?? 0) + 1);
   if (/elevation-tiles-prod\/terrarium\//.test(u.pathname)) return route.fulfill({ status: 200, contentType: 'image/png', body: TERRARIUM_PNG });
+  // สนามลม: ลมไล่ระดับตามลองจิจูด เพื่อให้ spread > 0 พิสูจน์ว่าใช้ค่ารายจุดจริง
+  if (u.hostname === 'api.open-meteo.com' && u.pathname.startsWith('/v1/forecast') && u.searchParams.get('hourly')?.includes('wind_speed_10m')) {
+    const lons = (u.searchParams.get('longitude') ?? '').split(',').map(Number);
+    // ต้องปัดเป็นต้นชั่วโมง — buildHours() สร้างคีย์เป็น 'YYYY-MM-DDTHH:00' เวลาท้องถิ่น
+    // ถ้าไม่ปัด จะได้ '10:37' แล้วไม่ตรงกับคีย์ของแอปเลยสักชั่วโมง
+    const h0 = new Date(); h0.setMinutes(0, 0, 0); h0.setHours(h0.getHours() - 24);
+    const times = Array.from({ length: 72 }, (_, k) => {
+      const d = new Date(h0.getTime() + k * 3600e3);
+      return new Date(d.getTime() - d.getTimezoneOffset() * 60e3).toISOString().slice(0, 16);
+    });
+    const lo = Math.min(...lons), hi = Math.max(...lons);
+    const body = lons.map(x => ({ hourly: { time: times,
+      wind_speed_10m: times.map(() => 1 + 6 * (x - lo) / ((hi - lo) || 1)),
+      wind_direction_10m: times.map(() => 90) } }));
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  }
   return route.fulfill({ status: 200, contentType: 'image/png', body: BLANK_PNG });
 });
 await page.click('#mPuff');
@@ -294,6 +310,22 @@ check(on.peak > off.peak * 50, `ตั้ง 1.0 → ควันลงถึง
 check(hi.peak > on.peak, `ตั้ง 2.0 → มากกว่าเดิมอีก (${hi.peak.toFixed(1)} µg/m³)`);
 check(off.txt === 'ปิด' && /1\.0/.test(on.txt), 'ป้ายค่าบอกสถานะถูก (ปิด / 1.0 ม./วิ)');
 await peakAt(1);
+
+// สนามลมจริงรายจุด — เปิดแล้วต้องคำนวณใหม่และผลต้องต่างจากลมค่าเดียว
+const beforeWind = await page.evaluate(() => ({ reqId: window.__MOKHWAN__.S.result.reqId, peak: window.__MOKHWAN__.S.result.perHour[0].max }));
+await page.click('#useWind');
+await page.waitForFunction(a => window.__MOKHWAN__.S.useWind && !window.__MOKHWAN__.S.computing && window.__MOKHWAN__.S.result.reqId > a,
+  beforeWind.reqId, { timeout: 45_000 });
+const wind = await page.evaluate(() => ({
+  info: window.__MOKHWAN__.S.windInfo, peak: window.__MOKHWAN__.S.result.perHour[0].max,
+  txt: document.getElementById('windstat').textContent,
+}));
+check(wind.info?.ok === true && wind.info.hours > 0, `ใส่สนามลมให้ ${wind.info?.hours}/${wind.info?.total} ชั่วโมง`);
+check(wind.info?.spread > 0.5, `ลมต่างกันในโดเมนจริง (spread ${wind.info?.spread?.toFixed(2)} ม./วิ)`);
+check(wind.peak !== beforeWind.peak, `ผลเปลี่ยนเมื่อใช้สนามลมจริง (${beforeWind.peak.toFixed(1)} → ${wind.peak.toFixed(1)} µg/m³)`);
+check(/ระยะห่างจุดข้อมูล/.test(wind.txt), 'สถานะบอกข้อจำกัดว่าจับลมในหุบไม่ได้');
+await page.click('#useWind');
+await page.waitForFunction(() => !window.__MOKHWAN__.S.useWind && !window.__MOKHWAN__.S.computing, { timeout: 45_000 });
 
 // เลื่อนมุมมองต้องไม่สร้างชั้นภูมิประเทศใหม่ (memoise) ไม่งั้นกระพริบตอนกด play
 const beforeImg = await page.evaluate(() => document.querySelector('.leaflet-terrain-pane img')?.getAttribute('src')?.length);
