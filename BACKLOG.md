@@ -33,7 +33,7 @@ import EngineWorker from 'mokhwan-engine/worker?worker&inline';
 
 ## บั๊กที่รู้อยู่ ยังไม่แก้
 
-### 1. เวิร์กเกอร์ error ระหว่างมีคำขอค้าง → UI ค้างเงียบ
+### 1. ~~เวิร์กเกอร์ error ระหว่างมีคำขอค้าง → UI ค้างเงียบ~~ — **แก้แล้ว 2026-09-03**
 
 `worker.onerror` ตั้ง `worker = null` แต่**ไม่เรียก `pendingResolve`** promise ของคำขอที่ค้างอยู่
 จึงไม่ settle ตลอดกาล `runSim()` ที่ `await` อยู่ไม่ไปต่อ `S.computing` ค้างเป็น `true`
@@ -45,7 +45,7 @@ import EngineWorker from 'mokhwan-engine/worker?worker&inline';
 **วิธีแก้** ให้ `onerror` เรียก `pendingResolve` ด้วยการคำนวณบนเธรดหลักแทน หรือ reject
 แล้วให้ `runSim` จับแล้วแสดงข้อความไทย
 
-### 2. `pendingResolve` เป็นช่องเดียว
+### 2. ~~`pendingResolve` เป็นช่องเดียว~~ — **แก้แล้ว 2026-09-03** (เป็น `Map<reqId, resolver>`)
 
 กดรันซ้อนกันจะเขียนทับ resolver ตัวเก่า promise แรกไม่ settle ตลอดกาล
 ไม่ใช่บั๊กความถูกต้องเพราะ `reqId` กันลำดับผลไว้แล้ว แต่เป็น promise ที่ค้าง
@@ -178,7 +178,7 @@ HANDOFF เขียนว่า "โหมดพื้นราบทำงา�
 ทำให้จุดเผาไปอยู่ไหล่แอ่งตื้นแทนก้นแอ่ง — เคยพลาดตรงนี้มาแล้วใน Task 1
 ดูตัวอย่างที่ถูกได้ใน `packages/engine/test/fixtures.ts` ฟังก์ชัน `syntheticDem`
 
-## เปิดโหมด 3D แล้วแท็บหนืดหลายสิบวินาที (พบ 2026-09-03)
+## ~~เปิดโหมด 3D แล้วแท็บหนืดหลายสิบวินาที~~ (พบและแก้แล้ว 2026-09-03)
 
 `set3D(true)` ตั้ง `setInterval` 150 มิลลิวินาที เรียก `m3.resize()` ซ้ำสูงสุด 40 รอบ
 เพื่อรอ style พร้อม · `resize()` ของแผนที่ที่เปิดภูมิประเทศไว้เป็นงานหนัก พอโดนยิงถี่ๆ

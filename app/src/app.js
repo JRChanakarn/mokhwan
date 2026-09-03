@@ -150,7 +150,11 @@ let rasterL = null, axisL = null;
 let worker = null;
 try{ worker = new EngineWorker(); }catch(err){ worker = null; }
 
-let reqSeq = 0, pendingResolve = null;
+let reqSeq = 0;
+/* คำขอที่ยังไม่ได้ผล เก็บเป็น Map ไม่ใช่ช่องเดียว
+   ของเดิมเป็นตัวแปรเดียว (pendingResolve) กดรันซ้อนกันแล้วตัวหลังเขียนทับตัวแรก
+   promise แรกจึงไม่ settle ตลอดกาล runSim ที่ await อยู่ค้าง S.computing เป็น true เงียบๆ */
+const pending = new Map();                              // reqId -> {resolve, payload}
 if(worker){
   worker.onmessage = ev => {
     const d = ev.data;
@@ -158,13 +162,30 @@ if(worker){
       if(d.reqId === reqSeq){ S.progress = {h:d.h, nH:d.nH}; renderPanel(); }
       return;
     }
-    if(pendingResolve){ const r = pendingResolve; pendingResolve = null; r(d); }
+    const p = d && pending.get(d.reqId);
+    if(p){ pending.delete(d.reqId); p.resolve(d); }
   };
-  worker.onerror = () => { worker = null; };
+  /* เวิร์กเกอร์ตายระหว่างมีคำขอค้าง ต้อง settle ให้ครบทุกอัน
+     ของเดิมแค่ตั้ง worker = null แล้วจบ promise ที่ค้างไม่ settle เลย UI ค้างโดยไม่มีข้อความบอก
+     ที่นี่ถอยไปคำนวณบนเธรดหลักด้วยเอนจินตัวเดียวกัน ช้ากว่าแต่ได้ผลจริง แล้วบอกผู้ใช้ */
+  worker.onerror = () => {
+    worker = null;
+    const stuck = [...pending.values()];
+    pending.clear();
+    $('netnote').innerHTML = '<div class="warnbox">เวิร์กเกอร์คำนวณหยุดทำงาน ' +
+      'จึงคำนวณบนเธรดหลักแทน — ผลเหมือนเดิมแต่หน้าจอจะหน่วงระหว่างคำนวณ</div>';
+    for(const p of stuck){
+      try{ p.resolve(engineRunSync(p.payload)); }
+      catch(e){ p.resolve({reqId: p.payload.reqId, error: e && e.message}); }
+    }
+  };
 }
 function engineRun(payload){
   if(worker){
-    return new Promise(res => { pendingResolve = res; worker.postMessage(payload); });
+    return new Promise(res => {
+      pending.set(payload.reqId, {resolve: res, payload});
+      worker.postMessage(payload);
+    });
   }
   // hook นี้รันอยู่ในลูปของเอนจิน ถ้า renderPanel โยน exception จะทำให้ run() ตายกลางคัน
   // และผลการคำนวณหายทั้งชุด — ห่อไว้ ความคืบหน้าไม่สำคัญเท่าผลลัพธ์
@@ -1795,5 +1816,5 @@ setWxStatus('ยังไม่ได้ดึงข้อมูล — วา�
 if(import.meta.env.DEV || new URLSearchParams(location.search).has('debug')){
   // m3 เป็น let ที่ถูกสร้างทีหลัง จึงต้องเป็น getter ไม่ใช่ค่าที่ snapshot ไว้ตอน boot
   window.__MOKHWAN__ = { S, addPlot, setWxMode, setModel, syncAllInputs, runSim, engineRun, map,
-                         plumeVolume, get m3(){ return m3; } };
+                         plumeVolume, pending, get m3(){ return m3; }, get worker(){ return worker; } };
 }

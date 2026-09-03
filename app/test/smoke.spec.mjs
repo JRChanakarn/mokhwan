@@ -380,6 +380,57 @@ await page.click('#vDose'); await page.waitForTimeout(600);
 const stable = await page.evaluate(() => document.querySelector('.leaflet-terrain-pane img') === window.__terrTest);
 check(beforeImg === afterEl.len && stable, 'เปลี่ยนมุมมองไม่สร้างชั้นภูมิประเทศใหม่ (element เดิม)');
 
+/* ── สะพานเวิร์กเกอร์: ต้องไม่ค้างเงียบ ────────────────────────────── */
+
+// คำขอซ้อนกันต้องได้ผลของ reqId ตัวเอง — ของเดิมเก็บ resolver ไว้ช่องเดียว
+// ตัวหลังเขียนทับตัวแรก แล้วคำตอบใบแรกที่กลับมาถูกจับคู่กับ resolver ผิดตัว
+const dual = await page.evaluate(async () => {
+  const M = window.__MOKHWAN__, w = M.worker;
+  if (!w) return null;
+  let seen = null;
+  const orig = w.postMessage.bind(w);
+  w.postMessage = p => { seen = p; orig(p); };   // ขโมย payload จริงมาใช้ซ้ำ
+  await M.runSim();
+  w.postMessage = orig;
+  if (!seen) return { noPayload: true };
+  const a = M.engineRun({ ...seen, reqId: 90001 });
+  const b = M.engineRun({ ...seen, reqId: 90002 });
+  const wait = q => Promise.race([q, new Promise(r => setTimeout(() => r({ reqId: 'ค้าง' }), 20000))]);
+  const [ra, rb] = await Promise.all([wait(a), wait(b)]);
+  return { a: ra.reqId, b: rb.reqId, left: M.pending.size };
+});
+check(dual && dual.a === 90001 && dual.b === 90002,
+      `คำขอซ้อนกันได้ผลของ reqId ตัวเอง ไม่สลับหรือค้าง (${dual && dual.a}, ${dual && dual.b})`);
+check(dual && dual.left === 0, 'ไม่มี resolver ตกค้างหลังคำขอซ้อน');
+
+// เวิร์กเกอร์ตายระหว่างมีคำขอค้าง ของเดิมแค่ตั้ง worker = null แล้ว promise ไม่ settle
+// runSim ที่ await อยู่ค้างตลอดกาล S.computing เป็น true โดยไม่มีข้อความบอกผู้ใช้
+const wkr = await page.evaluate(() => !!window.__MOKHWAN__.worker);
+if (wkr) {
+  const killed = await page.evaluate(async () => {
+    const M = window.__MOKHWAN__;
+    const w = M.worker;
+    // กลืนคำตอบของเวิร์กเกอร์ไว้ก่อน เพื่อให้มีคำขอค้างใน pending แน่ๆ
+    // ไม่งั้นเวิร์กเกอร์ตอบเร็วจนจับจังหวะไม่ทัน แล้วเทสต์จะผ่านแบบว่างเปล่า
+    w.onmessage = () => {};
+    const p = M.runSim();                       // ยิงคำขอแล้วอย่ารอ
+    for (let i = 0; i < 300 && M.pending.size === 0; i++) await new Promise(r => setTimeout(r, 50));
+    const before = M.pending.size;
+    w.onerror(new Event('error'));              // จำลองเวิร์กเกอร์ตายด้วยตัวจัดการจริง
+    const settled = await Promise.race([p.then(() => 'settled'),
+      new Promise(r => setTimeout(() => r('ค้าง'), 15000))]);
+    return { before, settled, after: M.pending.size, computing: M.S.computing,
+             hasResult: !!M.S.result, note: document.getElementById('netnote').textContent };
+  });
+  check(killed.before > 0, `มีคำขอค้างใน pending จริงก่อนทดสอบ (${killed.before} รายการ)`);
+  check(killed.settled === 'settled', `เวิร์กเกอร์ตายแล้ว promise ยัง settle (${killed.settled})`);
+  check(killed.after === 0, 'ไม่มีคำขอค้างเหลือหลังเวิร์กเกอร์ตาย');
+  check(killed.computing === false && killed.hasResult, 'ถอยไปคำนวณบนเธรดหลักแล้วได้ผลจริง');
+  check(/เวิร์กเกอร์คำนวณหยุดทำงาน/.test(killed.note), 'บอกผู้ใช้ว่าเกิดอะไรขึ้น ไม่เงียบ');
+} else {
+  check(false, 'ไม่มีเวิร์กเกอร์ให้ทดสอบ');
+}
+
 /* ── การโหลดของภายนอก ───────────────────────────────────────────────── */
 
 const mlBefore = await page.evaluate(() =>
