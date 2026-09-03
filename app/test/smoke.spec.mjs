@@ -404,6 +404,35 @@ try {
 clearInterval(spin);
 check(blocked === 0, `เธรดหลักไม่ตันระหว่างเข้า 3D (ครั้งที่ตอบช้าเกิน 3 วินาที: ${blocked})`);
 
+// โหมดข้อมูลจริง — ต้องปิดตัวคูณเพื่อการมองเห็นทุกตัว แล้วบังคับใช้ข้อมูลที่วัดมาจริง
+const tsBefore = await page.evaluate(() => ({
+  exag: +document.getElementById('exag').value, pexag: +document.getElementById('pexag').value }));
+await page.click('#trueScale');
+await page.waitForFunction(() => !window.__MOKHWAN__.S.computing && window.__MOKHWAN__.S.trueScale, null, { timeout: 45_000 });
+const ts = await page.evaluate(() => ({
+  exag: +document.getElementById('exag').value, pexag: +document.getElementById('pexag').value,
+  locked: document.getElementById('exag').disabled && document.getElementById('pexag').disabled,
+  model: window.__MOKHWAN__.S.model, useWind: window.__MOKHWAN__.S.useWind,
+  wxMode: window.__MOKHWAN__.S.wxMode,
+  note: document.getElementById('truenote').textContent,
+  height: window.__MOKHWAN__.plumeVolume().features.map(f => f.properties.height) }));
+check(ts.exag === 1 && ts.pexag === 1, `โหมดข้อมูลจริงตั้งสัดส่วนเป็น 1:1 (จาก ${tsBefore.exag}× / ${tsBefore.pexag}×)`);
+check(ts.locked, 'ล็อกสไลเดอร์ที่เป็นการยกเพื่อมองเห็นไว้');
+check(ts.model === 'puff' && ts.useWind === true && ts.wxMode === 'auto',
+      'บังคับใช้ DEM จริง สนามลมจริง และพยากรณ์จริง');
+check(/วัดมาจริง/.test(ts.note) && /คำนวณจากแบบจำลอง/.test(ts.note),
+      'ป้ายแยกให้ชัดว่าเลขไหนวัดมา เลขไหนมาจากแบบจำลอง');
+const lidTS = await page.evaluate(() => Math.max(window.__MOKHWAN__.S.result.perHour[window.__MOKHWAN__.S.hourIndex].mix, 60));
+check(ts.height.every(h => h <= lidTS * 1.05 + 5),
+      `ที่ 1:1 ความสูงควันไม่เกินชั้นผสมจริง (สูงสุด ${Math.max(...ts.height)} ม. ชั้นผสม ${Math.round(lidTS)} ม.)`);
+// ปิดสนามลมจริงต้องปลดโหมดตาม ไม่งั้นป้าย "ข้อมูลจริง" จะโกหก
+await page.click('#useWind');
+await page.waitForFunction(() => !window.__MOKHWAN__.S.computing, null, { timeout: 45_000 });
+check(await page.evaluate(() => !window.__MOKHWAN__.S.trueScale && !document.getElementById('exag').disabled),
+      'ปิดสนามลมจริงแล้วปลดโหมดข้อมูลจริงตาม');
+await page.click('#useWind');
+await page.waitForFunction(() => !window.__MOKHWAN__.S.computing, null, { timeout: 45_000 });
+
 // host ภายนอกที่แอปคุยด้วยต้องเป็นแค่ผู้ให้บริการแผนที่พื้นฐาน
 // ห้ามมี CDN ของไลบรารีหลุดกลับมา ซึ่งเป็นสิ่งที่งานรื้อโครงนี้กำจัดไป
 const LIB_CDNS = ['cdnjs.cloudflare.com', 'unpkg.com', 'cdn.jsdelivr.net'];

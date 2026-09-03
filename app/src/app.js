@@ -51,7 +51,7 @@ const S = {
   bg:25, bgAuto:false, bgSeries:null, avg:60, rangeKm:10, res:180, pop:180, opacity:0.6, depo:true,
   view:'hour', hourIndex:0, tab:'sum',
   result:null, origin:null, computing:false,
-  model:'gauss', dem:null, progress:null, wsFloor:1.0, useWind:false, windInfo:null,   // ก้าว 5: โหมดแบบจำลอง · DEM ที่โหลดได้ · ความคืบหน้ารายชั่วโมง
+  model:'gauss', dem:null, progress:null, wsFloor:1.0, useWind:false, trueScale: false, windInfo:null,   // ก้าว 5: โหมดแบบจำลอง · DEM ที่โหลดได้ · ความคืบหน้ารายชั่วโมง
 };
 (function initDate(){
   const d = new Date();
@@ -1098,7 +1098,9 @@ function init3D(){
       sources: {
         sat:  {type:'raster', tiles:[SATURL], tileSize:256, maxzoom:19,
                attribution:'&copy; Esri, Maxar · ภูมิประเทศ Terrain Tiles (AWS Open Data)'},
-        dem:  {type:'raster-dem', tiles:[DEM], tileSize:256, maxzoom:14, encoding:'terrarium'},
+        // z15 คือระดับลึกสุดที่ terrarium มีจริงแถบนี้ (z16 คืน 404) — ตาข่ายภูมิประเทศ
+        // ละเอียดขึ้นเท่าตัวเทียบ z14 ทำให้สันเขาและร่องเขาอ่านออกตอนกล้องอยู่ต่ำ
+        dem:  {type:'raster-dem', tiles:[DEM], tileSize:256, maxzoom:15, encoding:'terrarium'},
         plumeimg: {type:'image', url:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
                    coordinates:[[c.lng-0.01,c.lat+0.01],[c.lng+0.01,c.lat+0.01],[c.lng+0.01,c.lat-0.01],[c.lng-0.01,c.lat-0.01]]},
         vol:  {type:'geojson', data:{type:'FeatureCollection', features:[]}},
@@ -1122,7 +1124,8 @@ function init3D(){
          paint:{'circle-radius':5,'circle-color':['get','color'],'circle-stroke-color':'#0e141c','circle-stroke-width':1.5}},
       ],
     },
-    center:[c.lng, c.lat], zoom: Math.max(11, map.getZoom()-0.4), pitch:64, bearing:0,
+    // มุมสูงกับซูมออกทำให้ภูเขาดูแบน เริ่มที่มุมต่ำและใกล้พื้นกว่าเดิมเพื่อให้เห็นความชัน
+    center:[c.lng, c.lat], zoom: Math.max(11.4, map.getZoom()), pitch:74, bearing:0,
     maxPitch:80,
   });
   m3.addControl(new maplibregl.NavigationControl({visualizePitch:true}), 'top-right');
@@ -1266,6 +1269,51 @@ $('pexag').oninput = () => {
   update3D();
 };
 $('showGroundLayer').onchange = update3D;
+/* มุมมองภูเขา — ลดกล้องลงใกล้พื้นและเงยเกือบสุด ให้สันเขาตัดกับขอบฟ้า
+   ที่ผ่านมาภูเขาดูแบนเพราะกล้องอยู่สูงและซูมออก ไม่ใช่เพราะไม่มีข้อมูลความสูง */
+$('bRidge').onclick = () => {
+  if(!m3) return;
+  const h = S.result && S.result.perHour[S.hourIndex];
+  const c = S.origin || map.getCenter();
+  m3.easeTo({center:[c.lng, c.lat], bearing: h ? (h.wdir + 180) % 360 : m3.getBearing(),
+             pitch:79, zoom: Math.max(12.4, m3.getZoom()), duration:1100});
+};
+
+/* โหมดข้อมูลจริง — ปิดตัวคูณที่มีไว้เพื่อการมองเห็นทุกตัว แล้วบังคับใช้ข้อมูลที่วัดมาจริง
+
+   ปกติแอปยกภูมิประเทศ 1.5 เท่าและยกความสูงควัน 4 เท่า เพราะชั้นผสมตอนกลางวันหนา
+   ไม่กี่ร้อยเมตร ถ้าไม่ยกจะแทบมองไม่เห็นเทียบกับภูเขาที่สูงเป็นพันเมตร แต่ทำให้
+   สัดส่วนที่เห็นไม่ตรงความจริง โหมดนี้ตั้งทั้งสองค่าเป็น 1 แล้วล็อกไว้
+
+   สิ่งที่บังคับเปิดด้วย: แบบจำลองภูมิประเทศ (ใช้ DEM จริง) สนามลมรายจุดจริง
+   และพยากรณ์อากาศจริงแทนค่าที่กรอกเอง */
+const TRUE_SCALE_PREV = {exag:null, pexag:null};
+function setTrueScale(on){
+  S.trueScale = on;
+  const ex = $('exag'), pe = $('pexag');
+  if(on){
+    if(TRUE_SCALE_PREV.exag === null){ TRUE_SCALE_PREV.exag = ex.value; TRUE_SCALE_PREV.pexag = pe.value; }
+    ex.value = '1'; pe.value = '1';
+  }else if(TRUE_SCALE_PREV.exag !== null){
+    ex.value = TRUE_SCALE_PREV.exag; pe.value = TRUE_SCALE_PREV.pexag;
+    TRUE_SCALE_PREV.exag = TRUE_SCALE_PREV.pexag = null;
+  }
+  ex.disabled = pe.disabled = on;
+  ex.oninput(); pe.oninput();                     // อัปเดตป้าย ภูมิประเทศ และก้อนควัน
+  $('trueScale').checked = on;
+  $('truenote').innerHTML = on
+    ? '<b>วัดมาจริง</b> ความสูงภูมิประเทศ (AWS Terrain Tiles) · ลมรายจุดกับอากาศ (Open-Meteo) · ภาพดาวเทียม<br>' +
+      '<b>คำนวณจากแบบจำลอง</b> ความเข้มข้น PM2.5 และความหนาของควันในแนวดิ่ง (จาก σz ไม่ใช่ค่าที่วัด)<br>' +
+      'สัดส่วนความสูงตรงตามจริง 1:1 — ควันจะเตี้ยกว่าที่เคยเห็นมาก'
+    : '';
+  if(on){
+    if(S.model !== 'puff') setModel('puff');
+    if(!S.useWind){ S.useWind = true; $('useWind').checked = true; S.windInfo = null; schedule(); }
+    if(S.wxMode !== 'auto') setWxMode('auto');
+  }
+}
+$('trueScale').onchange = () => setTrueScale($('trueScale').checked);
+
 $('bAlign').onclick = () => {
   if(!m3 || !S.result) return;
   const h = S.result.perHour[S.hourIndex];
@@ -1398,7 +1446,7 @@ function saveScenario(){
       latlngs: p.latlngs ? p.latlngs.map(c => [c.lat,c.lng]) : null})),
     receptors:S.receptors.map(r => ({name:r.name, kind:r.kind, src:r.src, ll:[r.ll.lat,r.ll.lng]})),
     date:S.date, time:S.time, dur:S.dur, bg:S.bg, bgAuto:S.bgAuto, man:S.man, wxMode:S.wxMode,
-    rangeKm:S.rangeKm, res:S.res, pop:S.pop, depo:S.depo, model:S.model, wsFloor:S.wsFloor, useWind:S.useWind, center:[map.getCenter().lat,map.getCenter().lng], zoom:map.getZoom()};
+    rangeKm:S.rangeKm, res:S.res, pop:S.pop, depo:S.depo, model:S.model, wsFloor:S.wsFloor, useWind:S.useWind, trueScale:S.trueScale, center:[map.getCenter().lat,map.getCenter().lng], zoom:map.getZoom()};
   download('smoke-scenario.json', JSON.stringify(data,null,1), 'application/json');
 }
 function loadScenario(txt){
@@ -1416,6 +1464,7 @@ function loadScenario(txt){
     if(d.center) map.setView(d.center, d.zoom||13);
     S.wsFloor = typeof d.wsFloor === 'number' ? d.wsFloor : 1.0;
     S.useWind = !!d.useWind;
+    S.trueScale = !!d.trueScale;
     setModel(d.model === 'puff' ? 'puff' : 'gauss');
     syncAllInputs(); redrawPlots(); redrawRecs(); syncEditor(); schedule();
   }catch(e){ alert('ไฟล์ไม่ถูกต้อง: ' + e.message); }
@@ -1525,6 +1574,8 @@ function renderDemStatus(){
 }
 function setModel(m){
   S.model = m;
+  // gauss คือพื้นราบ ไม่ได้ใช้ DEM จึงไม่ใช่ "ข้อมูลจริงล้วน" อีกต่อไป
+  if(m !== 'puff' && S.trueScale) setTrueScale(false);
   $('mGauss').setAttribute('aria-pressed', m==='gauss');
   $('mPuff').setAttribute('aria-pressed', m==='puff');
   $('puffOpts').style.display = m==='puff' ? 'block' : 'none';
@@ -1549,7 +1600,12 @@ function setWxMode(m){
   if(m==='man') $('wxsrc').textContent = 'กำหนดเอง';
   schedule();
 }
-$('useWind').onchange = () => { S.useWind = $('useWind').checked; S.windInfo = null; schedule(); };
+$('useWind').onchange = () => {
+  S.useWind = $('useWind').checked; S.windInfo = null;
+  // ปิดสนามลมจริงแล้วจะไม่ใช่ "ข้อมูลจริงล้วน" อีก จึงต้องปลดโหมดตามไปด้วย
+  if(!S.useWind && S.trueScale) setTrueScale(false);
+  schedule();
+};
 $('wsfloor').oninput = () => {
   S.wsFloor = +$('wsfloor').value;
   $('wsfloortxt').textContent = S.wsFloor === 0 ? 'ปิด' : fmt(S.wsFloor,1) + ' ม./วิ';
@@ -1674,6 +1730,7 @@ function syncAllInputs(){
   $('wdtxt').textContent = S.man.wdir + '° ' + compass(S.man.wdir);
   $('wstxt').textContent = fmt(S.man.ws,1) + ' ม./วิ';
   $('useWind').checked = S.useWind;
+  setTrueScale(S.trueScale);
   $('wsfloor').value = S.wsFloor;
   $('wsfloortxt').textContent = S.wsFloor === 0 ? 'ปิด' : fmt(S.wsFloor,1) + ' ม./วิ';
   setWxMode(S.wxMode);
