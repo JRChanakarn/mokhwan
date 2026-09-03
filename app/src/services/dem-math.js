@@ -101,14 +101,6 @@ export function sampleGrid(mosaic, grid, origin) {
   return out;
 }
 
-/** upsample กริดหยาบ nc×nc (เรียง j*nc+i แถว 0 = เหนือ) เป็น N×N ด้วย bilinear — ใช้กับ Open-Meteo */
-export function upsampleGrid(coarse, nc, N) {
-  const out = new Float32Array(N * N);
-  const s = (nc - 1) / (N - 1);
-  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) out[j * N + i] = bilinear(coarse, nc, nc, i * s, j * s);
-  return out;
-}
-
 /** min/max/ความต่างระดับ */
 export function summarizeElev(elev) {
   let minZ = Infinity, maxZ = -Infinity;

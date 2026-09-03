@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   groundResolution, chooseZoom, lonLatToPixel, tileRange, boundsAround,
-  decodeTerrarium, decodeMosaic, bilinear, sampleGrid, upsampleGrid, summarizeElev, M_LAT, mLon,
+  decodeTerrarium, decodeMosaic, bilinear, sampleGrid, summarizeElev, M_LAT, mLon,
 } from '../src/services/dem-math.js';
 
 const CNX = { lat: 18.7883, lng: 98.9853 };   // เชียงใหม่ — จุดตั้งต้นของแอป
@@ -75,25 +75,21 @@ describe('sampleGrid — เรียงตรงกับกริดเอน�
   it('แถว j=0 คือด้านเหนือ (ค่าสูงกว่าแถวล่างสุด)', () => {
     expect(out[0]).toBeGreaterThan(out[59 * 60]);
   });
-  it('ค่าตรงกับสูตร lat×1000 ที่จุดศูนย์กลางเซลล์ (คลาด < 2 ม. จาก bilinear)', () => {
+  // เกณฑ์เดิม < 2 หน่วย = ±223 ม. บนพื้น (0.67 เซลล์) หลวมจนถอด −0.5 ออกก็ยังผ่าน
+  // ของจริงคลาดสูงสุด 0.0017 จึงรัดเป็น 0.05 (≈ 5 ซม.) ให้เทสต์คุม alignment จริง
+  it('ค่าตรงกับสูตร lat×1000 ที่จุดศูนย์กลางเซลล์ (คลาด < 0.05)', () => {
     const cell = 2 * grid.R / grid.N;
     for (const [i, j] of [[0, 0], [59, 59], [30, 30], [0, 59]]) {
       const py = grid.cy + grid.R - (j + 0.5) * cell;
       const lat = CNX.lat + py / M_LAT;
-      expect(Math.abs(out[j * 60 + i] - lat * 1000)).toBeLessThan(2);
+      expect(Math.abs(out[j * 60 + i] - lat * 1000)).toBeLessThan(0.05);
     }
   });
   it('ไม่ขึ้นกับ cx,cy ของกริดในทิศตะวันออก-ตะวันตก (ความสูงเปลี่ยนตามละติจูดเท่านั้น)', () => {
-    expect(Math.abs(out[30 * 60 + 0] - out[30 * 60 + 59])).toBeLessThan(2);
+    expect(Math.abs(out[30 * 60 + 0] - out[30 * 60 + 59])).toBeLessThan(0.05);
   });
 });
 
-describe('upsampleGrid / summarizeElev', () => {
-  it('2×2 → 5×5 มุมตรง กลางเป็นค่าเฉลี่ย', () => {
-    const c = new Float32Array([0, 100, 200, 300]);
-    const o = upsampleGrid(c, 2, 5);
-    expect(o[0]).toBe(0); expect(o[4]).toBe(100); expect(o[20]).toBe(200); expect(o[24]).toBe(300);
-    expect(o[12]).toBeCloseTo(150, 6);
-  });
-  it('summarizeElev', () => expect(summarizeElev(new Float32Array([300, 174, 860]))).toEqual({ minZ: 174, maxZ: 860, relief: 686 }));
+describe('summarizeElev', () => {
+  it('min/max/ต่างระดับ', () => expect(summarizeElev(new Float32Array([300, 174, 860]))).toEqual({ minZ: 174, maxZ: 860, relief: 686 }));
 });

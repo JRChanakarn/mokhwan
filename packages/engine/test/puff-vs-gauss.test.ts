@@ -59,6 +59,14 @@ describe('puff บนพื้นราบต้องใกล้ Gaussian (HAN
     expect(rel, `puff ${p.toFixed(2)} vs gauss ${g.toFixed(2)} (ต่าง ${(rel * 100).toFixed(1)}%)`).toBeLessThanOrEqual(0.25);
   });
 
+  // it.fails ผ่านเมื่อ "โยนอะไรก็ได้" ถ้าส่วนต่างเลวลงจาก 75% เป็น 7500% หรือ shape เปลี่ยน
+  // จน TypeError มันก็ยังเขียว · ratchet นี้ตรึงเพดานไว้ให้การถอยหลังเป็นสีแดง
+  it.each(reachable.map(d => [d, km.indexOf(d)]))('ที่ %i กม. ส่วนต่างต้องไม่เลวลงเกิน 80%% (ratchet)', (_d, i) => {
+    const p = puff.recMax[i as number], g = gauss.recMax[i as number];
+    const rel = Math.abs(p - g) / Math.max(g, 1e-9);
+    expect(rel, `puff ${p.toFixed(2)} vs gauss ${g.toFixed(2)} (ต่าง ${(rel * 100).toFixed(1)}%)`).toBeLessThanOrEqual(0.8);
+  });
+
   it('พีคระดับพื้นอยู่ในย่านเดียวกัน', () => {
     const pk = (r: any) => Math.max(...r.perHour.map((h: any) => h.max));
     const rel = Math.abs(pk(puff) - pk(gauss)) / pk(gauss);

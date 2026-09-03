@@ -262,6 +262,28 @@ await page.click('#mGauss');
 await page.waitForFunction(() => window.__MOKHWAN__.S.result && window.__MOKHWAN__.S.result.model === undefined, { timeout: 30_000 });
 check(await page.evaluate(() => !document.querySelector('.leaflet-terrain-pane img')), 'กลับโหมดพื้นราบแล้วภูมิประเทศหายไป');
 
+// ข้อจำกัดที่บอกผู้ใช้ต้องตรงกับแบบจำลองที่ใช้อยู่ ไม่ใช่พูดว่า "สมมติพื้นราบ" ตอนรันโหมดภูมิประเทศ
+const limGauss = await page.evaluate(() => document.getElementById('limitnote').textContent);
+check(/พื้นราบ/.test(limGauss) && !/CALPUFF/.test(limGauss), 'โหมดพื้นราบ: ข้อจำกัดพูดถึงพื้นราบ');
+await page.click('#mPuff');
+await page.waitForFunction(() => window.__MOKHWAN__.S.result?.model === 'puff' && window.__MOKHWAN__.S.result.perHour[0].terrain === true, { timeout: 45_000 });
+const limPuff = await page.evaluate(() => document.getElementById('limitnote').textContent);
+check(/CALPUFF/.test(limPuff) && /คลื่นภูเขา/.test(limPuff) && !/สมมติพื้นราบ/.test(limPuff),
+  'โหมดภูมิประเทศ: ข้อจำกัดเปลี่ยนตาม บอกว่าจับคลื่นภูเขาไม่ได้และอ้าง CALPUFF');
+
+// เลื่อนมุมมองต้องไม่สร้างชั้นภูมิประเทศใหม่ (memoise) ไม่งั้นกระพริบตอนกด play
+const beforeImg = await page.evaluate(() => document.querySelector('.leaflet-terrain-pane img')?.getAttribute('src')?.length);
+await page.click('#vMax'); await page.waitForTimeout(600);
+await page.click('#vHour'); await page.waitForTimeout(600);
+const afterEl = await page.evaluate(() => {
+  const im = document.querySelector('.leaflet-terrain-pane img');
+  return { len: im?.getAttribute('src')?.length, same: im === window.__terrTest };
+});
+await page.evaluate(() => { window.__terrTest = document.querySelector('.leaflet-terrain-pane img'); });
+await page.click('#vDose'); await page.waitForTimeout(600);
+const stable = await page.evaluate(() => document.querySelector('.leaflet-terrain-pane img') === window.__terrTest);
+check(beforeImg === afterEl.len && stable, 'เปลี่ยนมุมมองไม่สร้างชั้นภูมิประเทศใหม่ (element เดิม)');
+
 /* ── การโหลดของภายนอก ───────────────────────────────────────────────── */
 
 const mlBefore = await page.evaluate(() =>

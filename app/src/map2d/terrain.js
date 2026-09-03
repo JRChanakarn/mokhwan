@@ -77,7 +77,7 @@ export function terrainContourGeoJSON(elev, grid, levels, toLL) {
 
 /* ── ส่วน Leaflet ───────────────────────────────────────────────────────── */
 const PANE = 'terrainPane';
-let hillL = null, contL = null, renderer = null;
+let hillL = null, contL = null, renderer = null, lastKey = null;
 
 function ensurePane(map, L) {
   if (!map.getPane(PANE)) {
@@ -94,8 +94,14 @@ function ensurePane(map, L) {
  */
 export function showTerrain(map, { L, elev, grid, origin, toLL, minZ, maxZ }) {
   ensurePane(map, L);
-  clearTerrain(map);
   const { N, R, cx, cy } = grid, cell = 2 * R / N;
+  // refresh() ถูกเรียกทุกครั้งที่เลื่อนไทม์ไลน์หรือลาก slider พื้นหลัง แต่ input ของ
+  // ภูมิประเทศ (elev, กริด) เปลี่ยนเฉพาะตอนคำนวณใหม่ · ถ้าไม่จำไว้จะสร้าง data URL
+  // และรื้อ/ใส่ layer ใหม่ทุกเฟรม → ภูมิประเทศกระพริบใต้ควันตอนกด play (code review จับได้)
+  const key = `${N}|${R}|${cx}|${cy}|${elev.length}|${minZ}|${maxZ}|${origin.lat}|${origin.lng}`;
+  if (key === lastKey && hillL && contL) return null;
+  clearTerrain(map);
+  lastKey = key;
 
   const cv = document.createElement('canvas'); cv.width = N; cv.height = N;
   const ctx = cv.getContext('2d');
@@ -116,4 +122,5 @@ export function showTerrain(map, { L, elev, grid, origin, toLL, minZ, maxZ }) {
 export function clearTerrain(map) {
   if (hillL) { map.removeLayer(hillL); hillL = null; }
   if (contL) { map.removeLayer(contL); contL = null; }
+  lastKey = null;
 }

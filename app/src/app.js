@@ -164,8 +164,12 @@ function engineRun(payload){
   if(worker){
     return new Promise(res => { pendingResolve = res; worker.postMessage(payload); });
   }
+  // hook นี้รันอยู่ในลูปของเอนจิน ถ้า renderPanel โยน exception จะทำให้ run() ตายกลางคัน
+  // และผลการคำนวณหายทั้งชุด — ห่อไว้ ความคืบหน้าไม่สำคัญเท่าผลลัพธ์
   return Promise.resolve(engineRunSync(payload, {
-    onProgress: (h, nH) => { if(payload.reqId === reqSeq){ S.progress = {h, nH}; renderPanel(); } },
+    onProgress: (h, nH) => {
+      try { if(payload.reqId === reqSeq){ S.progress = {h, nH}; renderPanel(); } } catch(e){}
+    },
   }));
 }
 
@@ -325,10 +329,10 @@ function schedule(){ clearTimeout(schedTimer); schedTimer = setTimeout(runSim, 9
 
 async function runSim(){
   const origin = fireCentroid();
-  if(!origin){ S.result = null; clearOverlay(); renderPanel(); renderTimeline(); return; }
+  if(!origin){ S.result = null; clearOverlay(); clearTerrain(map); renderPanel(); renderTimeline(); return; }
   S.origin = origin;
   const fires = buildFires(origin);
-  if(!fires.length){ S.result = null; clearOverlay(); renderPanel(); return; }
+  if(!fires.length){ S.result = null; clearOverlay(); clearTerrain(map); renderPanel(); return; }
 
   const hours = buildHours();
   if(S.hourIndex >= hours.length) S.hourIndex = hours.length - 1;
@@ -349,10 +353,12 @@ async function runSim(){
 
   // โหมดภูมิประเทศต้องมี DEM — ดึงไม่ได้ก็ยังคำนวณต่อบนพื้นราบพร้อมป้ายบอก (fail-safe)
   if(S.model === 'puff'){
-    S.dem = {loading:true}; renderPanel();
+    S.dem = {loading:true, reqId:payload.reqId}; renderPanel();
     const dem = await loadDem(origin, payload.grid);
     if(payload.reqId !== reqSeq) return;               // มีคำขอใหม่แซงระหว่างดึง ทิ้งของนี้
-    S.dem = dem;
+    // ผูก reqId ไว้กับ DEM — ถ้าผู้ใช้เปลี่ยนรัศมี/ความละเอียดระหว่างคำนวณ elev ของคำขอใหม่
+    // (ขนาด N₂²) จะไม่ถูกเอาไปวาดคู่กับผลเก่าที่ยังเป็น N₁ (code review จับได้)
+    S.dem = {...dem, reqId:payload.reqId};
     if(dem.ok) payload.elev = dem.elev;
   }else{
     S.dem = null;
@@ -419,12 +425,12 @@ function computeStats(disp){
 }
 /* วาดใหม่โดยไม่คำนวณฟิสิกส์ซ้ำ */
 function refresh(){
-  if(!S.result){ clearOverlay(); renderPanel(); return; }
+  if(!S.result){ clearOverlay(); clearTerrain(map); renderPanel(); return; }
   const disp = currentGrid();
   S.stats = computeStats(disp);
   drawOverlay(disp);
   // ภูมิประเทศใต้ควัน — เฉพาะเมื่อผลปัจจุบันมาจาก puff บน DEM จริง (HANDOFF ข้อ 3)
-  if(S.result.model === 'puff' && S.dem && S.dem.ok && S.origin){
+  if(S.result.model === 'puff' && S.dem && S.dem.ok && S.origin && S.dem.reqId === S.result.reqId){
     const r = S.result;
     showTerrain(map, {L, elev:S.dem.elev, grid:{N:r.N, R:r.R, cx:r.cx, cy:r.cy}, origin:S.origin, toLL,
                       minZ:S.dem.meta.minZ, maxZ:S.dem.meta.maxZ});
@@ -441,7 +447,9 @@ function clearOverlay(){
   if(rasterL){ map.removeLayer(rasterL); rasterL = null; }
   if(axisL){ map.removeLayer(axisL); axisL = null; }
   gCont.clearLayers();
-  clearTerrain(map);
+  // ไม่ล้างภูมิประเทศที่นี่ — drawOverlay() เรียก clearOverlay() ทุกครั้งที่วาดใหม่
+  // การล้างจะรีเซ็ต memoise ของ terrain.js ทำให้สร้าง data URL และรื้อ layer ทุกเฟรม
+  // ชั้นภูมิประเทศถูกจัดการที่ refresh() และจุดที่ล้างผลลัพธ์ทิ้งเท่านั้น
 }
 function bandOf(v){
   for(let b=BANDS.length-1;b>=0;b--) if(v >= BANDS[b].lo) return b;
@@ -633,9 +641,18 @@ async function fetchOsm(){
 function renderPanel(){
   renderDemStatus();
   const el = $('pbody');
-  if(S.computing && !S.result){
+  // S.result ไม่ถูกล้างระหว่างรัน ถ้าเช็ค !S.result ข้อความความคืบหน้าจะขึ้นแค่ครั้งแรก
+  // ของทั้งเซสชัน — กรณีที่ต้องการมันที่สุด (สลับจาก gaussian ไป puff ที่ช้ากว่า) จะไม่เห็นเลย
+  if(S.computing){
     const pg = S.progress ? ' ชั่วโมง ' + S.progress.h + '/' + S.progress.nH : '';
-    el.innerHTML = '<div class="hint"><span class="spin"></span> กำลังคำนวณ…' + pg + '</div>'; return;
+    const banner = '<div class="hint"><span class="spin"></span> กำลังคำนวณ…' + pg + '</div>';
+    if(!S.result){ el.innerHTML = banner; return; }
+    el.innerHTML = banner;                       // มีผลเก่าอยู่ → แสดงแบนเนอร์คั่นแล้วต่อด้วยผลเดิม
+    const old = document.createElement('div');
+    old.style.opacity = '.45';
+    el.appendChild(old);
+    if(S.tab === 'sum') renderSummary(old); else if(S.tab === 'rec') renderRecs(old); else renderMet(old);
+    return;
   }
   if(!S.result){ el.innerHTML = '<div class="hint">วางแปลงเผาบนแผนที่เพื่อเริ่มจำลอง</div>'; return; }
   if(S.tab === 'sum') renderSummary(el);
@@ -1380,7 +1397,7 @@ function saveScenario(){
       latlngs: p.latlngs ? p.latlngs.map(c => [c.lat,c.lng]) : null})),
     receptors:S.receptors.map(r => ({name:r.name, kind:r.kind, src:r.src, ll:[r.ll.lat,r.ll.lng]})),
     date:S.date, time:S.time, dur:S.dur, bg:S.bg, bgAuto:S.bgAuto, man:S.man, wxMode:S.wxMode,
-    rangeKm:S.rangeKm, res:S.res, pop:S.pop, depo:S.depo, center:[map.getCenter().lat,map.getCenter().lng], zoom:map.getZoom()};
+    rangeKm:S.rangeKm, res:S.res, pop:S.pop, depo:S.depo, model:S.model, center:[map.getCenter().lat,map.getCenter().lng], zoom:map.getZoom()};
   download('smoke-scenario.json', JSON.stringify(data,null,1), 'application/json');
 }
 function loadScenario(txt){
@@ -1396,6 +1413,7 @@ function loadScenario(txt){
       man:d.man||S.man, wxMode:d.wxMode||'auto', rangeKm:d.rangeKm||10, res:d.res||180, bgAuto:!!d.bgAuto,
       pop:d.pop??180, depo:d.depo!==false});
     if(d.center) map.setView(d.center, d.zoom||13);
+    setModel(d.model === 'puff' ? 'puff' : 'gauss');
     syncAllInputs(); redrawPlots(); redrawRecs(); syncEditor(); schedule();
   }catch(e){ alert('ไฟล์ไม่ถูกต้อง: ' + e.message); }
 }
@@ -1496,6 +1514,13 @@ function setModel(m){
   $('modelnote').textContent = m==='puff'
     ? 'Lagrangian puff บนสนามลมที่ถูกภูมิประเทศเบน — ช้ากว่า และต้องดึงข้อมูลความสูงก่อน'
     : 'Gaussian plume บนพื้นราบ — เร็ว ใช้เปรียบเทียบทางเลือกได้ทันที';
+  // ข้อจำกัดต้องตรงกับแบบจำลองที่ใช้อยู่จริง ไม่งั้นบอกผู้ใช้ตรงข้ามกับสิ่งที่คำนวณ
+  $('limitnote').innerHTML = m==='puff'
+    ? 'แบบจำลอง Lagrangian puff บนสนามลม<b>วินิจฉัยสองมิติ</b> จับได้แค่การเบนรอบภูเขา ลมไหลลงลาด และการอับลมในแอ่ง ' +
+      '<b>จับไม่ได้</b>เรื่องคลื่นภูเขา การแยกตัวของกระแสหลังสันเขา และการสะสมข้ามวันใต้อินเวอร์ชัน ' +
+      'ระดับที่ใช้ตัดสินใจเชิงนโยบายต้องใช้ CALPUFF หรือ WRF-Chem'
+    : 'แบบจำลอง Gaussian plume ระดับคัดกรอง สมมติพื้นราบและลมคงที่ในแต่ละชั่วโมง ไม่คิดการไหลลงร่องเขาตอนกลางคืน ' +
+      'ใช้เปรียบเทียบทางเลือกได้ดี แต่ไม่ใช่ค่าตรวจวัดจริง';
   schedule();
 }
 function setWxMode(m){
@@ -1581,7 +1606,7 @@ $('bReset').onclick = () => {
   if(!confirm('ล้างแปลง จุดอ่อนไหว และผลทั้งหมด?')) return;
   setPlaying(false);
   S.plots = []; S.receptors = []; S.draft = []; S.sel = null; S.result = null;
-  clearOverlay(); redrawPlots(); redrawRecs(); syncEditor(); renderPanel(); renderTimeline();
+  clearOverlay(); clearTerrain(map); redrawPlots(); redrawRecs(); syncEditor(); renderPanel(); renderTimeline();
 };
 
 /* search */

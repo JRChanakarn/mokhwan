@@ -23,7 +23,12 @@ const SPAN_FACTOR = 1.4;       // ครอบเกินกริด (cx,cy �
 const COARSE_N = 20;           // กริดหยาบของ Open-Meteo 20×20 = 400 จุด = 4 คำขอ
 const TIMEOUT_MS = 12_000;
 
+const MAX_CACHE = 4;              // โมเสกละไม่เกิน ~2.4 MB · ผู้ใช้ย้ายจังหวัดไปเรื่อยๆ ไม่ควรสะสม
 const mosaicCache = new Map();
+function cacheSet(k, v) {
+  if (mosaicCache.size >= MAX_CACHE) mosaicCache.delete(mosaicCache.keys().next().value);
+  mosaicCache.set(k, v);
+}
 
 /** deps ค่าปริยายสำหรับเบราว์เซอร์ */
 export const browserDeps = {
@@ -90,42 +95,51 @@ async function loadOpenMeteoCoarse(origin, span, deps) {
  * ดึง DEM สำหรับกริดของเอนจิน
  * @returns {Promise<{ok:true, elev:Float32Array, meta:{source,zoom?,tiles?,resM,minZ,maxZ,relief,cached:boolean}} | {ok:false, reason:string}>}
  */
+/** แปลงโมเสก/กริดหยาบเป็น elev ของกริดเอนจิน */
+function toGrid(src, grid, origin, span) {
+  if (src.source === 'terrarium') return { elev: sampleGrid(src, grid, origin), resM: groundResolution(origin.lat, src.z) };
+  // กริดหยาบครอบ origin ± span ส่วนกริดเอนจินครอบ (cx,cy) ± R → bilinear บนกริดหยาบตรงๆ
+  const { N, R, cx, cy } = grid, cellG = 2 * R / N, cellC = 2 * span / src.nc;
+  const elev = new Float32Array(N * N);
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const px = cx - R + (i + 0.5) * cellG, py = cy + R - (j + 0.5) * cellG;
+    elev[j * N + i] = bilinear(src.coarse, src.nc, src.nc, (px + span) / cellC - 0.5, (span - py) / cellC - 0.5);
+  }
+  return { elev, resM: cellC };
+}
+
 export async function loadDem(origin, grid, deps = browserDeps) {
   const span = SPAN_FACTOR * grid.R;
   const key = cacheKey(origin, grid.R);
   const errs = [];
-  let src = mosaicCache.get(key);
-  const cached = !!src;
 
-  if (!src) {
-    try { src = await loadTerrariumMosaic(origin, span, deps); }
-    catch (e) { errs.push('terrarium: ' + (e && e.message || e)); }
-  }
-  if (!src) {
-    try { src = await loadOpenMeteoCoarse(origin, span, deps); }
-    catch (e) { errs.push('Open-Meteo: ' + (e && e.message || e)); }
-  }
-  if (!src) return { ok: false, reason: 'ดึงข้อมูลความสูงไม่ได้ทั้งสองแหล่ง — ' + errs.join(' · ') };
-  mosaicCache.set(key, src);
+  // ลำดับแหล่ง: cache (ถ้ามี) → terrarium → Open-Meteo
+  // **ตรวจค่าให้ผ่านก่อนถึงจะ cache** ไม่งั้นไทล์เสียใบเดียวจะทำให้ (origin, R) นั้น
+  // ล้มถาวรทั้งเซสชันโดยไม่เคยลองแหล่งสำรองเลย (code review จับได้)
+  // และค่าที่ผิดปกติต้องตกไปแหล่งถัดไป ไม่ใช่จบทันที
+  const cachedSrc = mosaicCache.get(key);
+  const loaders = [
+    cachedSrc ? { name: 'cache', fn: async () => cachedSrc, cached: true } : null,
+    { name: 'terrarium', fn: () => loadTerrariumMosaic(origin, span, deps) },
+    { name: 'Open-Meteo', fn: () => loadOpenMeteoCoarse(origin, span, deps) },
+  ].filter(Boolean);
 
-  let elev, resM;
-  if (src.source === 'terrarium') {
-    elev = sampleGrid(src, grid, origin);
-    resM = groundResolution(origin.lat, src.z);
-  } else {
-    // กริดหยาบครอบ origin ± span ส่วนกริดเอนจินครอบ (cx,cy) ± R → bilinear บนกริดหยาบตรงๆ
-    const { N, R, cx, cy } = grid, cellG = 2 * R / N, cellC = 2 * span / src.nc;
-    elev = new Float32Array(N * N);
-    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-      const px = cx - R + (i + 0.5) * cellG, py = cy + R - (j + 0.5) * cellG;
-      elev[j * N + i] = bilinear(src.coarse, src.nc, src.nc, (px + span) / cellC - 0.5, (span - py) / cellC - 0.5);
+  for (const ld of loaders) {
+    let src;
+    try { src = await ld.fn(); }
+    catch (e) { errs.push(ld.name + ': ' + (e && e.message || e)); continue; }
+    let elev, resM;
+    try { ({ elev, resM } = toGrid(src, grid, origin, span)); }
+    catch (e) { errs.push(ld.name + ': แปลงเป็นกริดไม่ได้ (' + (e && e.message || e) + ')'); continue; }
+    const { minZ, maxZ, relief } = summarizeElev(elev);
+    if (!Number.isFinite(minZ) || minZ < -500 || maxZ > 9000) {
+      errs.push(`${ld.name}: ค่าความสูงผิดปกติ (${Number.isFinite(minZ) ? minZ.toFixed(0) : '—'}–${Number.isFinite(maxZ) ? maxZ.toFixed(0) : '—'} ม.)`);
+      continue;                                    // ตกไปแหล่งถัดไป และไม่ cache ของเสีย
     }
-    resM = cellC;
+    if (!ld.cached) cacheSet(key, src);
+    return { ok: true, elev, meta: { source: src.source, zoom: src.z, tiles: src.tiles, resM, minZ, maxZ, relief, cached: !!ld.cached } };
   }
-  const { minZ, maxZ, relief } = summarizeElev(elev);
-  if (!Number.isFinite(minZ) || minZ < -500 || maxZ > 9000)
-    return { ok: false, reason: `ข้อมูลความสูงผิดปกติ (${minZ.toFixed(0)}–${maxZ.toFixed(0)} ม.) ไม่ใช้` };
-  return { ok: true, elev, meta: { source: src.source, zoom: src.z, tiles: src.tiles, resM, minZ, maxZ, relief, cached } };
+  return { ok: false, reason: 'ดึงข้อมูลความสูงไม่ได้ — ' + errs.join(' · ') };
 }
 
 /** ล้าง cache — ใช้ในเทสต์ */

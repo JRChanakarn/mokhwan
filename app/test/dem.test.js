@@ -12,7 +12,9 @@ function fakeCanvas(w, h) {
     drawImage: () => {}, getImageData: () => ({ data }),
     _data: data, _w: w }) , _data: data };
 }
-/** ภาพไทล์ปลอม 256×256 ที่ทุกพิกเซลเป็นความสูง elevM (terrarium) */
+/** ภาพไทล์ปลอม 256×256 ที่ทุกพิกเซลเป็นความสูง elevM (terrarium)
+ *  ความสูงคงที่ทั้งใบ → ไฟล์นี้ทดสอบ "เส้นทาง" ไม่ใช่ "การวางตำแหน่ง"
+ *  ความถูกต้องของ alignment อยู่ใน dem-math.test.js (sampleGrid กับโมเสกไล่ระดับ) */
 function fakeTile(elevM, size = TILE) {
   const v = elevM + 32768, r = Math.floor(v / 256), g = Math.floor(v % 256), b = Math.round((v % 1) * 256);
   return { width: size, height: size, draw: (ctx, x, y) => {
@@ -79,9 +81,28 @@ describe('loadDem — fail-safe', () => {
     const r = await loadDem(CNX, grid, deps({ loadImage: async () => { throw new Error('x'); }, fetchJson: async () => ({ nope: 1 }) }));
     expect(r.ok).toBe(false);
   });
-  it('ค่าความสูงผิดปกติ (ไทล์ดำทั้งใบ = −32768) → ไม่ใช้', async () => {
+  it('ค่าความสูงผิดปกติ (ไทล์ดำทั้งใบ = −32768) → ตกไปแหล่งสำรอง ไม่ใช่จบทันที', async () => {
+    const r = await loadDem(CNX, grid, deps({
+      loadImage: async () => fakeTile(-32768),
+      fetchJson: async url => ({ elevation: Array(url.match(/latitude=([^&]+)/)[1].split(',').length).fill(500) }),
+    }));
+    expect(r.ok).toBe(true);
+    expect(r.meta.source).toBe('open-meteo');
+  });
+  it('ค่าผิดปกติทั้งสองแหล่ง → ok:false และเหตุผลบอกทั้งคู่', async () => {
     const r = await loadDem(CNX, grid, deps({ loadImage: async () => fakeTile(-32768) }));
     expect(r.ok).toBe(false);
     expect(r.reason).toMatch(/ผิดปกติ/);
+    expect(r.reason).toMatch(/Open-Meteo/);
+  });
+  it('โมเสกเสียต้องไม่ถูก cache — ครั้งถัดไปยังลองใหม่ได้', async () => {
+    let bad = true;
+    const d = deps({ loadImage: async () => fakeTile(bad ? -32768 : 700) });
+    const r1 = await loadDem(CNX, grid, d);
+    expect(r1.ok).toBe(false);
+    bad = false;                                  // เครือข่ายกลับมาปกติ
+    const r2 = await loadDem(CNX, grid, d);
+    expect(r2.ok, 'ถ้า cache เก็บของเสียไว้ ครั้งนี้จะยัง ok:false ตลอดเซสชัน').toBe(true);
+    expect(Math.abs(r2.elev[0] - 700)).toBeLessThan(0.01);
   });
 });
