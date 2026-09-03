@@ -1,0 +1,70 @@
+# CI — เทสต์เอนจินและเทสต์ UI จริง
+#
+# smoke test ต้องมี dev server ที่พอร์ต 5180 กับเบราว์เซอร์
+# ในเครื่องมันใช้ Chrome ที่ติดตั้งอยู่ผ่าน channel:'chrome' แต่ใน runner ไม่มี
+# จึงลง chromium ของ playwright ให้ แล้วเทสต์จะถอยไปใช้ตัวนั้นเอง (ดูหัวไฟล์ smoke.spec.mjs)
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # ci ไม่ใช่ install เพื่อให้ล้มถ้า lockfile ไม่ตรงกับ package.json
+      # engine มี prepare script ที่ build ตัวเองตอน install อยู่แล้ว
+      - run: npm ci
+
+      - name: typecheck + unit
+        run: npm test
+
+      - name: ลง chromium ให้ smoke test
+        run: npx playwright install --with-deps chromium
+
+      - name: เปิด dev server ที่พอร์ต 5180
+        run: |
+          npx vite --port 5180 --strictPort app > /tmp/vite.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:5180/ > /dev/null && exit 0
+            sleep 1
+          done
+          echo "dev server ไม่ขึ้นใน 60 วินาที"; cat /tmp/vite.log; exit 1
+
+      - name: smoke
+        run: npm run test:smoke
+
+      - name: log ของ dev server ตอนล้ม
+        if: failure()
+        run: cat /tmp/vite.log || true
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # ต้องแน่ใจว่าของที่จะปล่อยขึ้น npm build ผ่านและมีไฟล์ที่ควรมี
+      - name: build engine แล้วตรวจสิ่งที่จะถูกปล่อย
+        run: |
+          npm run build -w mokhwan-engine
+          test -f packages/engine/dist/index.js
+          test -f packages/engine/dist/index.umd.cjs
+          test -f packages/engine/dist/index.d.ts
+          npm pack -w mokhwan-engine --dry-run
+
+      - run: npm run build -w app
