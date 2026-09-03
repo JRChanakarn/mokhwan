@@ -49,7 +49,7 @@ const S = {
   bg:25, bgAuto:false, bgSeries:null, avg:60, rangeKm:10, res:180, pop:180, opacity:0.6, depo:true,
   view:'hour', hourIndex:0, tab:'sum',
   result:null, origin:null, computing:false,
-  model:'gauss', dem:null, progress:null,   // ก้าว 5: โหมดแบบจำลอง · DEM ที่โหลดได้ · ความคืบหน้ารายชั่วโมง
+  model:'gauss', dem:null, progress:null, wsFloor:1.0,   // ก้าว 5: โหมดแบบจำลอง · DEM ที่โหลดได้ · ความคืบหน้ารายชั่วโมง
 };
 (function initDate(){
   const d = new Date();
@@ -349,6 +349,7 @@ async function runSim(){
     receptors: S.receptors.map(r => toXY(r.ll, origin)),
     bg: S.bg, avg: S.avg, depo: S.depo, reqId: ++reqSeq,
     model: S.model,                                     // 'gauss' | 'puff' (ก้าว 5)
+    sigmaWsFloor: S.wsFloor,                            // พื้นความปั่นป่วนของ σ ผู้ใช้ปรับได้
   };
 
   // โหมดภูมิประเทศต้องมี DEM — ดึงไม่ได้ก็ยังคำนวณต่อบนพื้นราบพร้อมป้ายบอก (fail-safe)
@@ -1397,7 +1398,7 @@ function saveScenario(){
       latlngs: p.latlngs ? p.latlngs.map(c => [c.lat,c.lng]) : null})),
     receptors:S.receptors.map(r => ({name:r.name, kind:r.kind, src:r.src, ll:[r.ll.lat,r.ll.lng]})),
     date:S.date, time:S.time, dur:S.dur, bg:S.bg, bgAuto:S.bgAuto, man:S.man, wxMode:S.wxMode,
-    rangeKm:S.rangeKm, res:S.res, pop:S.pop, depo:S.depo, model:S.model, center:[map.getCenter().lat,map.getCenter().lng], zoom:map.getZoom()};
+    rangeKm:S.rangeKm, res:S.res, pop:S.pop, depo:S.depo, model:S.model, wsFloor:S.wsFloor, center:[map.getCenter().lat,map.getCenter().lng], zoom:map.getZoom()};
   download('smoke-scenario.json', JSON.stringify(data,null,1), 'application/json');
 }
 function loadScenario(txt){
@@ -1413,6 +1414,7 @@ function loadScenario(txt){
       man:d.man||S.man, wxMode:d.wxMode||'auto', rangeKm:d.rangeKm||10, res:d.res||180, bgAuto:!!d.bgAuto,
       pop:d.pop??180, depo:d.depo!==false});
     if(d.center) map.setView(d.center, d.zoom||13);
+    S.wsFloor = typeof d.wsFloor === 'number' ? d.wsFloor : 1.0;
     setModel(d.model === 'puff' ? 'puff' : 'gauss');
     syncAllInputs(); redrawPlots(); redrawRecs(); syncEditor(); schedule();
   }catch(e){ alert('ไฟล์ไม่ถูกต้อง: ' + e.message); }
@@ -1511,6 +1513,7 @@ function setModel(m){
   S.model = m;
   $('mGauss').setAttribute('aria-pressed', m==='gauss');
   $('mPuff').setAttribute('aria-pressed', m==='puff');
+  $('puffOpts').style.display = m==='puff' ? 'block' : 'none';
   $('modelnote').textContent = m==='puff'
     ? 'Lagrangian puff บนสนามลมที่ถูกภูมิประเทศเบน — ช้ากว่า และต้องดึงข้อมูลความสูงก่อน'
     : 'Gaussian plume บนพื้นราบ — เร็ว ใช้เปรียบเทียบทางเลือกได้ทันที';
@@ -1532,6 +1535,11 @@ function setWxMode(m){
   if(m==='man') $('wxsrc').textContent = 'กำหนดเอง';
   schedule();
 }
+$('wsfloor').oninput = () => {
+  S.wsFloor = +$('wsfloor').value;
+  $('wsfloortxt').textContent = S.wsFloor === 0 ? 'ปิด' : fmt(S.wsFloor,1) + ' ม./วิ';
+  schedule();
+};
 $('mGauss').onclick = () => setModel('gauss');
 $('mPuff').onclick  = () => setModel('puff');
 $('wAuto').onclick = () => setWxMode('auto');
@@ -1650,6 +1658,8 @@ function syncAllInputs(){
   $('wdir').value = S.man.wdir; $('wspd').value = S.man.ws; $('stab').value = S.man.stab; $('mix').value = S.man.mix;
   $('wdtxt').textContent = S.man.wdir + '° ' + compass(S.man.wdir);
   $('wstxt').textContent = fmt(S.man.ws,1) + ' ม./วิ';
+  $('wsfloor').value = S.wsFloor;
+  $('wsfloortxt').textContent = S.wsFloor === 0 ? 'ปิด' : fmt(S.wsFloor,1) + ' ม./วิ';
   setWxMode(S.wxMode);
   setModel(S.model);
 }

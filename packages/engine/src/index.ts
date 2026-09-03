@@ -14,7 +14,7 @@ import { runPuff } from './puff.js';
 export * from './types.js';
 export { sigmas, plumeRise } from './briggs.js';
 export { windField } from './wind.js';
-export { runPuff } from './puff.js';
+export { runPuff, SIGMA_WS_FLOOR_DEFAULT } from './puff.js';
 
 /**
  * จุดเข้าหลัก — เลือกแบบจำลองตาม P.model

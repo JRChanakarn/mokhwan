@@ -8,14 +8,15 @@ import { windField, makeSampler } from './wind.js';
    บั๊กตาม HANDOFF-terrain-mode.md ข้อ 1 (ค่าที่พื้นบนภูมิประเทศเกือบเป็นศูนย์) แก้แล้ว
    ที่การคำนวณ σ — ดูคอมเมนต์ตรง xEff · เกณฑ์รับงานอยู่ใน test/terrain.test.ts */
 
-/** พื้นความเร็วลมอ้างอิงสำหรับการโตของ σ (m/s) — ดูเหตุผลตรง xEff */
-var SIGMA_WS_FLOOR = 1.0;
+/** ค่าปริยายของพื้นความเร็วลมอ้างอิงสำหรับการโตของ σ (m/s) — ดูเหตุผลตรง xEff */
+export var SIGMA_WS_FLOOR_DEFAULT = 1.0;
 
 /** โหมดตามภูมิประเทศ — Lagrangian puff บนสนามลมวินิจฉัยจาก DEM */
 export function runPuff(P: RunParams, hooks?: RunHooks): RunResult {
   var N = P.grid.N, R = P.grid.R, cx = P.grid.cx, cy = P.grid.cy;
   var cell = 2*R/N, nH = P.hours.length, K = N*N;
   var Z = P.elev ? new Float32Array(P.elev) : null;
+  var wsFloor = P.sigmaWsFloor == null ? SIGMA_WS_FLOOR_DEFAULT : P.sigmaWsFloor;
   var sample = makeSampler(null, N, cx, cy, R, cell);
   var maxG = new Float32Array(K), doseG = new Float32Array(K), grids = [];
   var nR = P.receptors.length;
@@ -95,13 +96,13 @@ export function runPuff(P: RunParams, hooks?: RunHooks): RunResult {
         // พลูมที่ถูกลมพัดไป การใช้ ws·t จึงเป็นการแทน "ความปั่นป่วนไม่หยุดตามลมเฉลี่ย"
         // ด้วยตัวแปรที่โมเดลมีอยู่ อย่าเชื่อตัวเลขในแอ่งลมนิ่งเกินระดับการเปรียบเทียบ
         //
-        // SIGMA_WS_FLOOR: ที่ ws ต่ำมากสูตรนี้ยังกดค่าที่พื้นจนเกือบศูนย์อยู่ดี
+        // พื้นความปั่นป่วน (P.sigmaWsFloor ปริยาย 1.0): ที่ ws ต่ำมากสูตรนี้ยังกดค่าที่พื้นจนเกือบศูนย์อยู่ดี
         // (ws 0.3 ให้ σz 7.4 ม. ที่อายุ 1800 วิ → ตัวประกอบที่พื้น 1.6e-5 ต่ำกว่าเคส ws 1.3
         // ถึง 268 เท่า) ซึ่งเป็นอาการเดิมในฉากเช้ามืดลมนิ่งที่เป็นหัวใจของเครื่องมือ
         // จึงตั้งพื้นความปั่นป่วนไว้ 1.0 m/s — เลือกให้ σz ที่อายุครึ่งชั่วโมงอยู่ราว 19 ม.
-        // ซึ่งพอให้แผ่นควันคุกรุ่นที่ ~42 ม. แตะพื้นได้ · ไม่กระทบเคสที่ ws ≥ 1.0
-        // (golden ทั้งสองเคสใช้ ws 1.3 จึงไม่ขยับ) · เป็นสมมติฐานเชิงแบบจำลอง จดใน BACKLOG
-        var xEff = Math.max(pf.d, Math.max(Hd.ws, SIGMA_WS_FLOOR)*pf.t, 12);
+        // ซึ่งพอให้แผ่นควันคุกรุ่นที่ ~42 ม. แตะพื้นได้ · ไม่กระทบเคสที่ ws ≥ ค่าพื้น
+        // เป็นสมมติฐานเชิงแบบจำลอง ผู้ใช้ปรับได้จาก UI (ดู types.ts sigmaWsFloor)
+        var xEff = Math.max(pf.d, Math.max(Hd.ws, wsFloor)*pf.t, 12);
         var sg = sigmas(xEff, st);
         var sy = Math.sqrt(sg[0]*sg[0] + pf.sy0*pf.sy0);
         var sz = Math.min(sg[1], L/1.25);

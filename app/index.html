@@ -55,6 +55,14 @@
         <button id="mPuff" aria-pressed="false">ตามภูมิประเทศ · ช้ากว่า</button>
       </div>
       <p class="hint" id="modelnote"></p>
+      <div id="puffOpts" style="display:none">
+        <div class="row" style="margin-top:8px"><label>พื้นความปั่นป่วน</label>
+          <span class="tag" id="wsfloortxt">1.0 ม./วิ</span></div>
+        <input id="wsfloor" type="range" min="0" max="2.5" step="0.1" value="1">
+        <p class="hint">เมื่อลมเฉลี่ยนิ่งจนก้อนควันชะงักในแอ่ง ค่านี้บอกว่าความปั่นป่วนยังทำให้ควัน
+          แผ่ตัวต่อเทียบเท่าลมกี่เมตรต่อวินาที <b>เป็นสมมติฐานเชิงแบบจำลอง ไม่ใช่ค่าที่วัดมา</b>
+          ตั้ง 0 = ปิด จะได้พฤติกรรมแบบเดิมที่ควันค้างกลางอากาศไม่ลงถึงพื้น</p>
+      </div>
       <div id="demstat"></div>
     </section>
 

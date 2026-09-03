@@ -271,6 +271,30 @@ const limPuff = await page.evaluate(() => document.getElementById('limitnote').t
 check(/CALPUFF/.test(limPuff) && /คลื่นภูเขา/.test(limPuff) && !/สมมติพื้นราบ/.test(limPuff),
   'โหมดภูมิประเทศ: ข้อจำกัดเปลี่ยนตาม บอกว่าจับคลื่นภูเขาไม่ได้และอ้าง CALPUFF');
 
+// พื้นความปั่นป่วนปรับได้จาก UI และมีผลจริง (ตั้งลมนิ่ง 0.4 เพื่อให้ค่านี้เป็นตัวชี้ขาด)
+await page.evaluate(() => { const M = window.__MOKHWAN__; M.S.man = { ws: 0.4, wdir: 90, stab: 'F', mix: 150 }; M.syncAllInputs(); });
+await page.waitForFunction(() => window.__MOKHWAN__.S.result?.perHour[0].ws === 0.4, { timeout: 45_000 });
+const peakAt = async v => {
+  // ต้องรอ "ผลชุดใหม่" ไม่ใช่แค่ !computing — schedule() หน่วง 90 ms ถ้าเช็คเร็วเกินไป
+  // S.computing ยังเป็น false จากรอบก่อน เงื่อนไขผ่านทันทีแล้วอ่านผลเก่า (เจอตอนเขียนเทสต์)
+  const before = await page.evaluate(() => window.__MOKHWAN__.S.result.reqId);
+  await page.evaluate(x => {
+    const el = document.getElementById('wsfloor');
+    el.value = String(x); el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, v);
+  // playwright: waitForFunction(fn, arg, options) — เรียงสลับแล้ว arg จะกลายเป็น object ของ options
+  await page.waitForFunction(
+    a => window.__MOKHWAN__.S.wsFloor === a.v && !window.__MOKHWAN__.S.computing && window.__MOKHWAN__.S.result.reqId > a.before,
+    { v, before }, { timeout: 45_000 });
+  return page.evaluate(() => ({ peak: window.__MOKHWAN__.S.result.perHour[0].max, txt: document.getElementById('wsfloortxt').textContent }));
+};
+const off = await peakAt(0), on = await peakAt(1), hi = await peakAt(2);
+check(off.peak < 1, `ปิดพื้นความปั่นป่วน → ค่าที่พื้นเกือบศูนย์ (${off.peak.toFixed(2)}) = พฤติกรรมก่อนแก้บั๊ก`);
+check(on.peak > off.peak * 50, `ตั้ง 1.0 → ควันลงถึงพื้น (${on.peak.toFixed(1)} µg/m³)`);
+check(hi.peak > on.peak, `ตั้ง 2.0 → มากกว่าเดิมอีก (${hi.peak.toFixed(1)} µg/m³)`);
+check(off.txt === 'ปิด' && /1\.0/.test(on.txt), 'ป้ายค่าบอกสถานะถูก (ปิด / 1.0 ม./วิ)');
+await peakAt(1);
+
 // เลื่อนมุมมองต้องไม่สร้างชั้นภูมิประเทศใหม่ (memoise) ไม่งั้นกระพริบตอนกด play
 const beforeImg = await page.evaluate(() => document.querySelector('.leaflet-terrain-pane img')?.getAttribute('src')?.length);
 await page.click('#vMax'); await page.waitForTimeout(600);
