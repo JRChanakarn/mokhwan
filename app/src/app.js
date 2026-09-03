@@ -336,6 +336,9 @@ async function runSim(){
   if(!origin){ S.result = null; S.dem = null; clearOverlay(); clearTerrain(map); renderPanel(); renderTimeline(); return; }
   S.origin = origin;
   const fires = buildFires(origin);
+  // ทางนี้เข้าไม่ถึงจริงในตอนนี้ (fireCentroid กับ buildFires กรองด้วย p.on !== false
+  // เหมือนกัน ไม่มีแปลงที่เปิด = origin เป็น null ไปตั้งแต่ข้างบนแล้ว) ล้าง S.dem ไว้
+  // ให้ตรงกับทางข้างบนเผื่อวันหนึ่งเงื่อนไขสองอันนี้แยกจากกัน — smoke จึงคุมได้แค่ทางบน
   if(!fires.length){ S.result = null; S.dem = null; clearOverlay(); clearTerrain(map); renderPanel(); return; }
 
   const hours = buildHours();
