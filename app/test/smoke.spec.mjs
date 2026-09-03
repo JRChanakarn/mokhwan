@@ -258,7 +258,44 @@ check(demOk.src === 'terrarium', `DEM มาจาก terrarium (zoom ${demOk.zo
 check(demOk.relief > 100, `เอนจินได้ภูมิประเทศจริง relief ${demOk.relief?.toFixed(0)} ม.`);
 check(Number.isFinite(demOk.Fr) && demOk.Fr < 99, `Froude ถูกคำนวณจาก DEM (${demOk.Fr?.toFixed(3)})`);
 check(demOk.peak > 1, `puff บนภูมิประเทศให้ค่าที่พื้นไม่เป็นศูนย์ (${demOk.peak?.toFixed(1)} µg/m³)`);
-check(/AWS Terrain Tiles/.test(demOk.txt) && /Froude/.test(demOk.txt), 'ป้ายสถานะ DEM แสดงแหล่ง ความละเอียด ต่างระดับ และ Froude');
+check(/AWS Terrain Tiles|Open-Meteo/.test(demOk.txt) && /ม\.\/จุด/.test(demOk.txt) && /ต่างระดับในโดเมน/.test(demOk.txt),
+      'ป้ายสถานะ DEM แสดงแหล่ง ความละเอียด และต่างระดับ')
+// เดิมเช็คว่ามีคำว่า "Froude" ซึ่งไม่มีใครแปลออก ตอนนี้ต้องบอกเป็นภาษาคนว่า
+// ชั่วโมงนั้นภูเขาเบนลมหรือลมพัดข้ามไป
+check(/เบนอ้อม|ข้ามสันเขา/.test(demOk.txt), 'บอกเป็นภาษาคนว่าภูเขาเบนลมหรือลมข้ามไป')
+
+// ระยะต้องวัดจากกองไฟที่**ใกล้ที่สุด** ไม่ใช่จาก origin ซึ่งเป็นศูนย์กลางของทุกแปลงรวมกัน
+// วางหลายแปลงกระจายกันแล้ววัดจากศูนย์กลางจะคลาดเคลื่อนได้หลายเท่า (เจ้าของงานเจอจากภาพ)
+const spread = await page.evaluate(async () => {
+  const M = window.__MOKHWAN__;
+  const c = M.map.getCenter();
+  M.S.plots = [];
+  [[0.05,-0.06],[0,0],[-0.05,0.06],[0.06,0.05]].forEach(([dy,dx]) =>
+    M.addPlot({ type:'point', latlng:{lat:c.lat+dy, lng:c.lng+dx}, rai:150 }));
+  const before = M.S.result ? M.S.result.reqId : 0;
+  M.runSim();
+  return before;
+});
+await page.waitForFunction(a => !window.__MOKHWAN__.S.computing && window.__MOKHWAN__.S.result.reqId > a,
+  spread, { timeout: 60_000 });
+const dist = await page.evaluate(() => {
+  const M = window.__MOKHWAN__, r = M.S.result, st = M.S.stats;
+  const fires = M.firePoints();
+  // หาระยะจากศูนย์กลางไปยังกองไฟที่ไกลสุด ถ้าวัดผิดจะได้ค่าระดับนี้
+  const spreadKm = Math.max(...fires.map(f => Math.hypot(f[0], f[1])))/1000;
+  return { fires: fires.length, peakKm: st.dmaxD/1000, reachKm: st.reach/1000, spreadKm };
+});
+check(dist.fires === 4, `วางแปลงกระจาย ${dist.fires} แปลง ห่างจากศูนย์กลางถึง ${dist.spreadKm.toFixed(1)} กม.`);
+check(dist.peakKm < dist.spreadKm * 0.6,
+      `ระยะพีควัดจากกองไฟใกล้สุด ${dist.peakKm.toFixed(2)} กม. ไม่ใช่จากศูนย์กลาง (${dist.spreadKm.toFixed(1)} กม.)`);
+// อากาศที่ stub ไว้ให้ค่าต่ำกว่าเกณฑ์ 37.5 จึงอาจได้ 0 = ไม่มีที่เกิน ซึ่งถูกต้อง
+// ที่ต้องกันคือค่าที่โตเกินการกระจายของแปลง ซึ่งเป็นอาการของการวัดจากศูนย์กลาง
+check(dist.reachKm >= 0 && dist.reachKm < dist.spreadKm * 1.5,
+      `ระยะที่ยังเกินเกณฑ์ไม่โตเกินจริง (${dist.reachKm.toFixed(2)} กม.)`);
+await page.evaluate(() => { const M = window.__MOKHWAN__;
+  M.S.plots = []; M.addPlot({ type:'point', latlng: M.map.getCenter(), rai:20 }); });
+await page.waitForFunction(() => !window.__MOKHWAN__.S.computing && window.__MOKHWAN__.S.result,
+  null, { timeout: 60_000 });
 
 // HANDOFF ข้อ 3 / เกณฑ์ 4: โหมด 2D เห็นภูมิประเทศพร้อมชั้นควัน และภูมิประเทศต้องอยู่ *ใต้* ควัน
 const terr = await page.evaluate(() => {

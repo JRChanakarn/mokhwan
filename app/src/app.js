@@ -447,22 +447,42 @@ function recValue(i){
   return (r.recPerHour[S.hourIndex] || r.recPerHour[0])[i];
 }
 /* สถิติของกริดที่แสดง — เบาพอจะคำนวณสดทุกเฟรม */
+/* ระยะต้องวัดจาก**กองไฟที่ใกล้ที่สุด** ไม่ใช่จาก origin
+   origin คือจุดศูนย์กลางของทุกแปลงรวมกัน พอวางหลายแปลงกระจายกัน เซลล์ที่ติดกองไฟหนึ่ง
+   จะอยู่ห่างจากศูนย์กลางเป็นกิโลเมตร ป้าย "ห่างจากกองไฟ" เลยโกหก — วัดได้คลาดเคลื่อน
+   ถึง 16 เท่าในกรณี 6 แปลงกระจาย 10 กม. (เจ้าของงานเจอจากภาพหน้าจอ)
+   แปลงเดียวไม่เห็นปัญหาเพราะศูนย์กลาง = แปลงนั้น */
+function firePoints(){
+  if(!S.origin) return [];
+  return S.plots.filter(p => p.on !== false).map(p => toXY(plotCentroid(p), S.origin));
+}
 function computeStats(disp){
   const r = S.result, N = r.N, cell = r.cell, cx = r.cx, cy = r.cy, R = r.R;
   const BG = curBg();
   const cellKm2 = cell*cell/1e6;
   const areas = new Array(BANDS.length).fill(0);
+  const fires = firePoints();
+  const distToFire = (x, y) => {
+    if(!fires.length) return Math.hypot(x, y);       // ไม่มีแปลง ถอยไปวัดจาก origin
+    let m = Infinity;
+    for(const f of fires){ const d = Math.hypot(x - f[0], y - f[1]); if(d < m) m = d; }
+    return m;
+  };
   let dmax = 0, dmaxD = 0, reach = 0;
   for(let j=0;j<N;j++){
     const py = cy + R - (j+0.5)*cell;
     for(let i=0;i<N;i++){
+      const px = cx - R + (i+0.5)*cell;
       const v = disp[j*N+i];
-      if(v > dmax){ dmax = v; dmaxD = Math.hypot(cx - R + (i+0.5)*cell, py); }
+      if(v > dmax){ dmax = v; dmaxD = distToFire(px, py); }
       if(v < 0.5) continue;
       const b = bandOf(v + BG);
       if(b >= 0) areas[b] += cellKm2;
+      // "ไปไกลถึง" คือระยะจากกองไฟที่ใกล้สุดถึงเซลล์ที่ยังเกินเกณฑ์
+      // เดิมฉายลงแกนลมเฉลี่ยจาก origin ซึ่งได้ค่าติดลบสำหรับเซลล์เหนือลมและเกินจริง
+      // สำหรับเซลล์ที่อยู่ใกล้แปลงท้ายลม
       if(v + BG >= 37.5){
-        const d = (cx - R + (i+0.5)*cell)*r.meanUx + py*r.meanUy;
+        const d = distToFire(px, py);
         if(d > reach) reach = d;
       }
     }
@@ -758,7 +778,7 @@ function renderSummary(el){
     trustBar() +
     '<div class="sub">' + viewLabel() + (S.view==='hour' && hrs[S.hourIndex] ? ' · ' + hrs[S.hourIndex].t.slice(11) + ' น.' : '') + '</div>' +
     '<div class="st2"><span>ค่าสูงสุดบนพื้น</span><b style="color:' + recColor(totMax) + '">' + softNum(totMax) + ' µg/m³</b></div>' +
-    '<div class="st2"><span>ห่างจากกองไฟ</span><b>' + fmt(st.dmaxD/1000,2) + ' กม.</b></div>' +
+    '<div class="st2"><span>ห่างจากกองไฟใกล้สุด</span><b>' + fmt(st.dmaxD/1000,2) + ' กม.</b></div>' +
     '<div class="st2"><span>เกิน 37.5 ไปไกลถึง</span><b>' + (st.reach > 0 ? fmt(st.reach/1000,2) + ' กม.' : 'ไม่เกิน') + '</b></div>' +
     '<div class="st2"><span>ทิศที่ควันไปเฉลี่ย</span><b>' + compass(Math.atan2(r.meanUx, r.meanUy)*180/Math.PI) + '</b></div>' +
     '<div class="sep"></div>' +
@@ -1687,12 +1707,38 @@ function renderDemStatus(){
   if(d.loading){ el.innerHTML = '<div class="hint"><span class="spin"></span> กำลังดึงข้อมูลความสูงภูมิประเทศ…</div>'; return; }
   if(!d.ok){ el.innerHTML = '<div class="warnbox">' + d.reason + '<br>คำนวณแบบพื้นราบแทน</div>'; return; }
   const m = d.meta;
-  let fr = '';
-  if(S.result && S.result.model === 'puff')
-    fr = ' · Froude ' + S.result.perHour.map(h => h.Fr == null ? '–' : (h.Fr >= 99 ? '∞' : h.Fr.toFixed(2))).join(', ');
   el.innerHTML = '<div class="hint">ความสูงจาก ' + (m.source === 'terrarium' ? 'AWS Terrain Tiles' : 'Open-Meteo') +
-    ' · ' + fmt(m.resM, 0) + ' ม./จุด · ต่างระดับในโดเมน ' + fmt(m.relief, 0) + ' ม.' + fr +
-    (m.cached ? ' · จาก cache' : '') + '</div>';
+    ' · ' + fmt(m.resM, 0) + ' ม./จุด · ต่างระดับในโดเมน ' + fmt(m.relief, 0) + ' ม.' +
+    (m.cached ? ' · จาก cache' : '') + '</div>' + deflectStatus();
+}
+/* บอกตรงๆ ว่าชั่วโมงไหนภูเขาเบนลม ชั่วโมงไหนลมพัดข้ามไป
+   เดิมแสดงแค่ "Froude ∞, ∞, 0.02" ซึ่งไม่มีใครแปลออกว่าหมายถึงอะไร
+   ∞ คือ Nb = 0 (อากาศไม่เสถียร ไม่มีการแบ่งชั้น) แล้ว block = 1 - Fr ติดลบ ถูกตัดเป็น 0
+   ผลคือ**ลมไม่ถูกเบนเลย ควันพัดข้ามสันเขาไปตรงๆ** ซึ่งดูเหมือนแบบจำลองพัง
+   แต่เป็นเพราะเราทำแค่การหนีบตาม Froude (ใช้ได้เฉพาะอากาศเสถียร) ยังไม่มีผลทางกลศาสตร์
+   ที่ภูเขาบังคับทางลมในทุกสภาพอากาศ — ดู BACKLOG */
+function deflectStatus(){
+  const r = S.result;
+  if(!r || r.model !== 'puff' || !r.perHour.length) return '';
+  const blocks = r.perHour.map(h => h.Fr == null ? null : Math.max(0, Math.min(0.9, 1 - h.Fr)));
+  const rows = r.perHour.map((h,i) => {
+    const b = blocks[i];
+    const lbl = b == null ? '–' : b <= 0.05 ? 'ข้ามสันเขา' : Math.round(b*100) + '% เบนอ้อม';
+    return h.t.slice(11,13) + ':00 ' + lbl;
+  }).join(' · ');
+  const nOff = blocks.filter(b => b != null && b <= 0.05).length;
+  const cur = blocks[S.hourIndex];
+  let head;
+  if(cur == null) head = '';
+  else if(cur <= 0.05) head = '<b>ชั่วโมงที่เลือก ลมพัดข้ามสันเขาไปตรงๆ ภูเขาไม่เบนลมเลย</b>';
+  else head = '<b>ชั่วโมงที่เลือก ภูเขาเบนลมอ้อมไป ' + Math.round(cur*100) + '%</b>';
+  const why = nOff > 0
+    ? '<br>อากาศที่ผสมตัวดี (กลางวัน) ทำให้ Froude สูง แบบจำลองจึงให้ลมข้ามสันเขา ' +
+      '<b>ยังไม่คิดผลทางกลศาสตร์</b>ที่ภูเขาบังคับทางลมในทุกสภาพอากาศ ' +
+      'ตอนกลางวันโหมดภูมิประเทศจึงให้ทิศลมเหมือนโหมดพื้นราบ'
+    : '';
+  return '<div class="' + (nOff > 0 ? 'warnbox' : 'hint') + '">' + head + why +
+         '<br><span style="opacity:.75">' + rows + '</span></div>';
 }
 function setModel(m){
   S.model = m;
@@ -1891,5 +1937,5 @@ setWxStatus('ยังไม่ได้ดึงข้อมูล — วา�
 if(import.meta.env.DEV || new URLSearchParams(location.search).has('debug')){
   // m3 เป็น let ที่ถูกสร้างทีหลัง จึงต้องเป็น getter ไม่ใช่ค่าที่ snapshot ไว้ตอน boot
   window.__MOKHWAN__ = { S, addPlot, setWxMode, setModel, syncAllInputs, runSim, engineRun, map,
-                         plumeVolume, pending, runRecord, popRange, softNum, get m3(){ return m3; }, get worker(){ return worker; } };
+                         plumeVolume, pending, runRecord, popRange, softNum, firePoints, computeStats, get m3(){ return m3; }, get worker(){ return worker; } };
 }
