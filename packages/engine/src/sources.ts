@@ -22,20 +22,32 @@ export function prep(P: RunParams, H: HourWx, hi: number) {
     var Q = Gh/dt;
     var QH = fr.fuelKg*w*HEAT*CONV/dt;
     var sm = Math.min(0.95, fr.smold + 0.5*P.progress[hi]);
-    var parts = [{fr:1-sm, qh:QH*(1-sm)}, {fr:sm, qh:QH*sm*SMOLD_HEAT}];
+
+    // แยกมวล PM2.5 ตาม EF ของแต่ละเฟส (ดู types.ts Fire.efRatio)
+    // ความร้อนยังแยกตาม**สัดส่วนเชื้อเพลิง** เพราะความร้อนมาจากเชื้อเพลิงที่ไหม้ ไม่ใช่จากฝุ่น
+    // มวลรวมคงเดิมทุกค่าของ r เพราะ wFl + wSm = 1
+    var r = fr.efRatio;
+    if(!(typeof r === 'number' && r > 0 && isFinite(r))) r = 1;
+    var denom = (1-sm) + r*sm;
+    var wFl = denom > 0 ? (1-sm)/denom : 1;
+    var wSm = denom > 0 ? r*sm/denom : 0;
+
+    var parts = [{fuelFr:1-sm, massFr:wFl, qh:QH*(1-sm)},
+                 {fuelFr:sm,   massFr:wSm, qh:QH*sm*SMOLD_HEAT}];
     var layers = [];
     for(var li=0; li<parts.length; li++){
-      if(parts[li].fr <= 0.001) continue;
+      // เกตใช้สัดส่วน**เชื้อเพลิง** ไม่ใช่มวลฝุ่น เพื่อให้ efRatio = 1 ได้พฤติกรรมเดิมเป๊ะ
+      if(parts[li].fuelFr <= 0.001) continue;
       var h = plumeRise(parts[li].qh, u10, st);
       if(h > 0.9*L){ h = 0.9*L; capped = true; }
       layers.push({
-        q: Q*parts[li].fr/fr.pts.length,
+        q: Q*parts[li].massFr/fr.pts.length,
         H: h,
         u: Math.max(u10*Math.pow(Math.max(h,10)/10, STABP[st]), 0.4)
       });
       var uu = layers[layers.length-1].u;
-      if(li===0){ qFl += Q*parts[li].fr; if(h>Hfl){ Hfl = h; uFl = uu; } }
-      else      { qSm += Q*parts[li].fr; if(h>Hsm){ Hsm = h; uSm = uu; } }
+      if(li===0){ qFl += Q*parts[li].massFr; if(h>Hfl){ Hfl = h; uFl = uu; } }
+      else      { qSm += Q*parts[li].massFr; if(h>Hsm){ Hsm = h; uSm = uu; } }
     }
     if(fr.side/4.3 > sy0max) sy0max = fr.side/4.3;
     groups.push({pts: fr.pts, layers: layers, sy0: fr.side/4.3});

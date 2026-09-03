@@ -51,7 +51,7 @@ const S = {
   bg:25, bgAuto:false, bgSeries:null, avg:60, rangeKm:10, res:180, pop:180, opacity:0.6, depo:true,
   view:'hour', hourIndex:0, tab:'sum',
   result:null, origin:null, computing:false,
-  model:'gauss', dem:null, progress:null, wsFloor:1.0, useWind:false, trueScale: false, windInfo:null,   // ก้าว 5: โหมดแบบจำลอง · DEM ที่โหลดได้ · ความคืบหน้ารายชั่วโมง
+  model:'gauss', dem:null, progress:null, wsFloor:1.0, efRatio:1.0, useWind:false, trueScale: false, windInfo:null,   // ก้าว 5: โหมดแบบจำลอง · DEM ที่โหลดได้ · ความคืบหน้ารายชั่วโมง
 };
 (function initDate(){
   const d = new Date();
@@ -341,7 +341,7 @@ function buildFires(origin){
     const rai = areaM2/RAI;
     const fuelKg = rai*p.load*1000*p.cc;
     out.push({pts, side:Math.sqrt(areaM2), fuelKg, totalG: fuelKg*p.ef,
-              smold: 0.18 + 0.62*p.moist, rai});
+              smold: 0.18 + 0.62*p.moist, rai, efRatio: S.efRatio});
   });
   return out;
 }
@@ -1507,7 +1507,7 @@ function saveScenario(){
       latlngs: p.latlngs ? p.latlngs.map(c => [c.lat,c.lng]) : null})),
     receptors:S.receptors.map(r => ({name:r.name, kind:r.kind, src:r.src, ll:[r.ll.lat,r.ll.lng]})),
     date:S.date, time:S.time, dur:S.dur, bg:S.bg, bgAuto:S.bgAuto, man:S.man, wxMode:S.wxMode,
-    rangeKm:S.rangeKm, res:S.res, pop:S.pop, depo:S.depo, model:S.model, wsFloor:S.wsFloor, useWind:S.useWind, trueScale:S.trueScale, center:[map.getCenter().lat,map.getCenter().lng], zoom:map.getZoom()};
+    rangeKm:S.rangeKm, res:S.res, pop:S.pop, depo:S.depo, model:S.model, wsFloor:S.wsFloor, useWind:S.useWind, trueScale:S.trueScale, efRatio:S.efRatio, center:[map.getCenter().lat,map.getCenter().lng], zoom:map.getZoom()};
   download('smoke-scenario.json', JSON.stringify(data,null,1), 'application/json');
 }
 function loadScenario(txt){
@@ -1524,6 +1524,7 @@ function loadScenario(txt){
       pop:d.pop??180, depo:d.depo!==false});
     if(d.center) map.setView(d.center, d.zoom||13);
     S.wsFloor = typeof d.wsFloor === 'number' ? d.wsFloor : 1.0;
+    S.efRatio = typeof d.efRatio === 'number' && d.efRatio > 0 ? d.efRatio : 1.0;
     S.useWind = !!d.useWind;
     S.trueScale = !!d.trueScale;
     setModel(d.model === 'puff' ? 'puff' : 'gauss');
@@ -1667,6 +1668,18 @@ $('useWind').onchange = () => {
   if(!S.useWind && S.trueScale) setTrueScale(false);
   schedule();
 };
+/* ฝุ่นต่อ กก. ของเฟสคุกรุ่นเทียบเฟสเปลวไฟ — ย้ายมวลระหว่างสองความสูง ไม่เพิ่มมวลที่ปล่อย
+   ปริยาย 1 (เท่ากัน) เพราะการเปลี่ยนค่านี้ขยับผลลัพธ์ทุกตัว ควรทำหลังตรวจสอบเทียบค่าจริง */
+function renderEfRatio(){
+  const r = S.efRatio;
+  $('efratiotxt').textContent = r <= 1.001 ? 'เท่ากัน' : fmt(r,1) + '×';
+  $('efrationote').innerHTML = r <= 1.001
+    ? 'ตอนนี้สมมติว่าเฟสคุกรุ่นกับเฟสเปลวไฟปล่อยฝุ่นต่อกิโลกรัมเท่ากัน ซึ่ง<b>ขัดกับที่วัดได้</b> · ' +
+      'Oanh et al. (2011) วัดฟางข้าวในไทย เผากระจาย 4.7 ก./กก. เผากอง 20 ก./กก. — ราว <b>4.3×</b>'
+    : 'ย้ายมวลฝุ่นไปอยู่กับควันคุกรุ่นที่ลอยต่ำและกระจายแย่กว่า <b>มวลรวมที่ปล่อยไม่เปลี่ยน</b> · ' +
+      'อ้างอิง Oanh et al. (2011) Atmos. Environ. 45:493–502 ฟางข้าวในไทย เผากอง/เผากระจาย ≈ 4.3×';
+}
+$('efratio').oninput = () => { S.efRatio = +$('efratio').value; renderEfRatio(); schedule(); };
 $('wsfloor').oninput = () => {
   S.wsFloor = +$('wsfloor').value;
   $('wsfloortxt').textContent = S.wsFloor === 0 ? 'ปิด' : fmt(S.wsFloor,1) + ' ม./วิ';
@@ -1792,6 +1805,8 @@ function syncAllInputs(){
   $('wstxt').textContent = fmt(S.man.ws,1) + ' ม./วิ';
   $('useWind').checked = S.useWind;
   setTrueScale(S.trueScale);
+  $('efratio').value = S.efRatio;
+  renderEfRatio();
   $('wsfloor').value = S.wsFloor;
   $('wsfloortxt').textContent = S.wsFloor === 0 ? 'ปิด' : fmt(S.wsFloor,1) + ' ม./วิ';
   setWxMode(S.wxMode);

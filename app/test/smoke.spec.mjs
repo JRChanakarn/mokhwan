@@ -380,6 +380,48 @@ await page.click('#vDose'); await page.waitForTimeout(600);
 const stable = await page.evaluate(() => document.querySelector('.leaflet-terrain-pane img') === window.__terrTest);
 check(beforeImg === afterEl.len && stable, 'เปลี่ยนมุมมองไม่สร้างชั้นภูมิประเทศใหม่ (element เดิม)');
 
+/* ── ฝุ่นต่อ กก. แยกตามเฟสการเผา ────────────────────────────────────── */
+
+// ปริยายต้องเป็น 1 = พฤติกรรมเดิม ขยับแล้วต้องย้ายมวลไม่ใช่เพิ่มมวล
+const efBefore = await page.evaluate(() => ({
+  ratio: window.__MOKHWAN__.S.efRatio,
+  emit: window.__MOKHWAN__.S.result.totalEmitKg,
+  peak: window.__MOKHWAN__.S.result.perHour[0].max,
+  qFl: window.__MOKHWAN__.S.result.perHour[0].qFl,
+  qSm: window.__MOKHWAN__.S.result.perHour[0].qSm,
+  note: document.getElementById('efrationote').textContent,
+}));
+check(efBefore.ratio === 1, `ค่าปริยายของฝุ่นต่อ กก. เฟสคุกรุ่นเป็น 1 = พฤติกรรมเดิม`);
+check(/Oanh/.test(efBefore.note) && /4\.3/.test(efBefore.note),
+      'ป้ายอ้างอิงงานวิจัยที่วัดค่าไว้จริง ไม่ใช่ตัวเลขลอยๆ');
+
+const beforeReq = await page.evaluate(() => window.__MOKHWAN__.S.result.reqId);
+await page.evaluate(() => {
+  const el = document.getElementById('efratio');
+  el.value = '4.3'; el.oninput();
+});
+await page.waitForFunction(a => !window.__MOKHWAN__.S.computing && window.__MOKHWAN__.S.result.reqId > a,
+  beforeReq, { timeout: 45_000 });
+const efAfter = await page.evaluate(() => ({
+  emit: window.__MOKHWAN__.S.result.totalEmitKg,
+  peak: window.__MOKHWAN__.S.result.perHour[0].max,
+  qFl: window.__MOKHWAN__.S.result.perHour[0].qFl,
+  qSm: window.__MOKHWAN__.S.result.perHour[0].qSm,
+  txt: document.getElementById('efratiotxt').textContent,
+}));
+check(Math.abs(efAfter.emit - efBefore.emit) < 1e-6,
+      `มวลรวมที่ปล่อยไม่เปลี่ยน (${efBefore.emit.toFixed(1)} → ${efAfter.emit.toFixed(1)} กก.)`);
+check(Math.abs((efAfter.qFl + efAfter.qSm) - (efBefore.qFl + efBefore.qSm)) < 1e-6,
+      'อัตราปล่อยรวมสองเฟสไม่เปลี่ยน — ย้ายมวล ไม่ใช่เพิ่มมวล');
+check(efAfter.qSm > efBefore.qSm && efAfter.qFl < efBefore.qFl,
+      `มวลย้ายไปเฟสคุกรุ่น (${efBefore.qSm.toFixed(2)} → ${efAfter.qSm.toFixed(2)} ก./วิ)`);
+check(efAfter.peak > efBefore.peak,
+      `ค่าที่พื้นสูงขึ้นเพราะควันคุกรุ่นลอยต่ำ (${efBefore.peak.toFixed(1)} → ${efAfter.peak.toFixed(1)} µg/m³)`);
+check(efAfter.txt === '4.3×', 'ป้ายแสดงค่าที่ตั้งไว้');
+
+await page.evaluate(() => { const el = document.getElementById('efratio'); el.value = '1'; el.oninput(); });
+await page.waitForFunction(() => !window.__MOKHWAN__.S.computing, null, { timeout: 45_000 });
+
 /* ── สะพานเวิร์กเกอร์: ต้องไม่ค้างเงียบ ────────────────────────────── */
 
 // คำขอซ้อนกันต้องได้ผลของ reqId ตัวเอง — ของเดิมเก็บ resolver ไว้ช่องเดียว
