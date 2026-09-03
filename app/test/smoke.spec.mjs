@@ -404,6 +404,17 @@ try {
 clearInterval(spin);
 check(blocked === 0, `เธรดหลักไม่ตันระหว่างเข้า 3D (ครั้งที่ตอบช้าเกิน 3 วินาที: ${blocked})`);
 
+// ลบแปลงทิ้งตอนกำลังดึง DEM ต้องไม่ทิ้งสถานะ "กำลังดึง…" ค้างไว้ตลอดไป
+await page.evaluate(() => { window.__MOKHWAN__.S.dem = { loading: true }; window.__MOKHWAN__.S.plots = []; });
+await page.evaluate(() => window.__MOKHWAN__.runSim());
+await page.waitForFunction(() => !window.__MOKHWAN__.S.computing, null, { timeout: 20_000 });
+check(await page.evaluate(() => window.__MOKHWAN__.S.dem === null &&
+        !/กำลังดึงข้อมูลความสูง/.test(document.getElementById('demstat').textContent)),
+      'ลบแปลงทิ้งแล้วสถานะ DEM ไม่ค้างที่ "กำลังดึง…"');
+await page.evaluate(() => { const M = window.__MOKHWAN__;
+  M.addPlot({ type: 'point', latlng: M.map.getCenter(), rai: 20 }); });
+await page.waitForFunction(() => window.__MOKHWAN__.S.result && !window.__MOKHWAN__.S.computing, null, { timeout: 45_000 });
+
 // โหมดข้อมูลจริง — ต้องปิดตัวคูณเพื่อการมองเห็นทุกตัว แล้วบังคับใช้ข้อมูลที่วัดมาจริง
 const tsBefore = await page.evaluate(() => ({
   exag: +document.getElementById('exag').value, pexag: +document.getElementById('pexag').value }));

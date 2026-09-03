@@ -331,10 +331,12 @@ function schedule(){ clearTimeout(schedTimer); schedTimer = setTimeout(runSim, 9
 
 async function runSim(){
   const origin = fireCentroid();
-  if(!origin){ S.result = null; clearOverlay(); clearTerrain(map); renderPanel(); renderTimeline(); return; }
+  // ต้องล้าง S.dem ด้วย ไม่งั้นถ้าลบแปลงทิ้งระหว่างกำลังดึง DEM ค่า {loading:true} จะค้าง
+  // แล้วแผงสถานะหมุนอยู่อย่างนั้นตลอดไป (เจอตอนทดสอบบนเครื่องจริง)
+  if(!origin){ S.result = null; S.dem = null; clearOverlay(); clearTerrain(map); renderPanel(); renderTimeline(); return; }
   S.origin = origin;
   const fires = buildFires(origin);
-  if(!fires.length){ S.result = null; clearOverlay(); clearTerrain(map); renderPanel(); return; }
+  if(!fires.length){ S.result = null; S.dem = null; clearOverlay(); clearTerrain(map); renderPanel(); return; }
 
   const hours = buildHours();
   if(S.hourIndex >= hours.length) S.hourIndex = hours.length - 1;
@@ -1098,9 +1100,11 @@ function init3D(){
       sources: {
         sat:  {type:'raster', tiles:[SATURL], tileSize:256, maxzoom:19,
                attribution:'&copy; Esri, Maxar · ภูมิประเทศ Terrain Tiles (AWS Open Data)'},
-        // z15 คือระดับลึกสุดที่ terrarium มีจริงแถบนี้ (z16 คืน 404) — ตาข่ายภูมิประเทศ
-        // ละเอียดขึ้นเท่าตัวเทียบ z14 ทำให้สันเขาและร่องเขาอ่านออกตอนกล้องอยู่ต่ำ
-        dem:  {type:'raster-dem', tiles:[DEM], tileSize:256, maxzoom:15, encoding:'terrarium'},
+        // อยู่ที่ z14 เพราะข้อมูลต้นทางของ terrarium แถบนี้คือ SRTM 30 ม. ส่วน z14 ให้
+        // 9 ม./พิกเซลซึ่ง oversample อยู่แล้ว · เคยลอง z15 (มีจริง z16 คืน 404) ได้ไทล์
+        // เยอะขึ้นสี่เท่าโดยไม่ได้รายละเอียดเพิ่มเลย และหนักจนหน้าโหลดใหม่เอง
+        // ความชันที่มองเห็นมาจากมุมกล้อง ไม่ใช่ระดับ zoom ของ DEM
+        dem:  {type:'raster-dem', tiles:[DEM], tileSize:256, maxzoom:14, encoding:'terrarium'},
         plumeimg: {type:'image', url:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
                    coordinates:[[c.lng-0.01,c.lat+0.01],[c.lng+0.01,c.lat+0.01],[c.lng+0.01,c.lat-0.01],[c.lng-0.01,c.lat-0.01]]},
         vol:  {type:'geojson', data:{type:'FeatureCollection', features:[]}},
@@ -1130,15 +1134,17 @@ function init3D(){
   });
   m3.addControl(new maplibregl.NavigationControl({visualizePitch:true}), 'top-right');
   // อย่าผูกกับ event 'load' เพราะถ้าไทล์ค้างมันจะไม่ยิง ใช้สถานะของ style แทน
-  m3.on('styledata', () => {
-    if(!m3ready && m3.isStyleLoaded()){
-      m3ready = true;
-      try{ m3.setTerrain({source:'dem', exaggeration:+$('exag').value}); }catch(e){}
-      try{ m3.addControl(new maplibregl.TerrainControl({source:'dem'})); }catch(e){}
-    }
+  // ใช้ 'style.load' ไม่ใช่ isStyleLoaded() — isStyleLoaded() คือ style.loaded() ซึ่งเป็นจริง
+  // ต่อเมื่อ**ทุก source โหลดครบ** พอ DEM เป็น z15 ไทล์เยอะขึ้นสี่เท่า มันเลยไม่เป็นจริง
+  // ในเวลาที่ยอมรับได้ ทั้งที่แผนที่วาดออกมาแล้ว · style.load ยิงตอนสไตล์ถูก parse เสร็จ
+  // ซึ่งเป็นจังหวะที่ layer และ source พร้อมให้ setData ได้จริง
+  m3.on('style.load', () => {
+    m3ready = true;
+    try{ m3.setTerrain({source:'dem', exaggeration:+$('exag').value}); }catch(e){}
+    try{ m3.addControl(new maplibregl.TerrainControl({source:'dem'})); }catch(e){}
     update3D();
   });
-  m3.once('idle', update3D);
+  m3.on('styledata', update3D);
   m3.on('error', e => {
     const msg = (e && e.error && e.error.message) || '';
     if(/dem|elevation/i.test(msg)) $('netnote').innerHTML =
@@ -1153,7 +1159,7 @@ function diag(html){
   el.innerHTML = html; el.style.display = 'block';
 }
 function update3D(){
-  if(!m3 || !m3.isStyleLoaded()) return;
+  if(!m3 || !m3ready) return;          // m3ready = สไตล์ถูก parse แล้ว ไม่ใช่ไทล์ครบ
   try{
     m3.getSource('vol').setData(plumeVolume());
     m3.getSource('plots').setData(plotsGeo());
@@ -1179,38 +1185,36 @@ function update3D(){
 
 /* รอให้แผนที่ 3 มิติพร้อม
 
-   ของเดิมยิง m3.resize() ทุก 150 มิลลิวินาที สูงสุด 40 รอบ ตัวที่ทำให้ main thread ตัน
-   30-60 วินาทีคือ resize() ไม่ใช่การ poll เอง — resize ของแผนที่ที่เปิดภูมิประเทศไว้
-   บังคับให้คำนวณและวาดใหม่ทั้งฉาก
+   สองรอบแรกที่แก้ยังไม่ถูก บันทึกไว้กันหลงทางซ้ำ
+     poll m3.resize() ทุก 150 มิลลิวินาที -> resize ของแผนที่ที่เปิดภูมิประเทศหนักมาก
+       ยิงถี่แล้ว main thread ตัน 30-60 วินาที นี่คือต้นเหตุของอาการค้าง
+     ผูก 'load'/'idle' หรือเช็ค isStyleLoaded() -> ทั้งสามรอจน**ไทล์โหลดครบ**
+       พอ DEM เป็น z15 ไทล์เยอะขึ้นสี่เท่า เลยไม่เคยเป็นจริงจนชนตัวตัด 25 วินาที
+       (ใน headless ไม่โผล่เพราะไทล์ถูก stub จึงครบทันที)
 
-   เงื่อนไขพร้อมยังเป็น isStyleLoaded() เหมือนเดิม ไม่ใช้ 'load'/'idle' เพราะสองตัวนั้น
-   รอจนไทล์โหลดครบ ซึ่งกับภูมิประเทศจริงกินเวลาเกิน 30 วินาที ทั้งที่แผนที่วาดได้แล้ว
-   ผูก event เป็นทางหลัก แล้วมี poll เบาๆ 400 มิลลิวินาทีเป็นตัวสำรอง (แค่อ่านสถานะ
-   ไม่เรียก resize) เผื่อ styledata หยุดยิงก่อนสไตล์พร้อม */
+   สัญญาณที่ถูกคือ 'style.load' ซึ่งยิงตอนสไตล์ถูก parse เสร็จ ก่อนไทล์ใดๆ
+   มี 'render' เป็นตัวสำรองเผื่อผูกไม่ทัน (ยิงทุกเฟรม ตัวจัดการแค่เช็ค flag) */
 function await3D(w3){
   if(!m3) return;
   let done = false;
-  const ready = () => !!m3 && m3.isStyleLoaded() && m3.getCanvas().width > 100;
   const finish = () => {
-    if(done || !ready()) return;
+    if(done || !m3 || !m3ready) return;
     done = true;
-    clearTimeout(bail); clearInterval(poll);
-    m3.off('styledata', finish); m3.off('load', finish);
+    clearTimeout(bail); m3.off('style.load', finish); m3.off('render', finish);
     m3.resize();                       // ครั้งเดียวหลังพร้อม เผื่อคอนเทนเนอร์เพิ่งได้ขนาดจริง
     update3D(); diag(null);
   };
   const bail = setTimeout(() => {
     if(done || !m3) return;
     done = true;
-    clearInterval(poll); m3.off('styledata', finish); m3.off('load', finish);
+    m3.off('style.load', finish); m3.off('render', finish);
     const cv = m3.getCanvas();
     diag('<b>แผนที่ 3 มิติเริ่มไม่สำเร็จ</b><br>ขนาดภาพวาด ' + cv.width + '×' + cv.height +
-         ' · คอนเทนเนอร์กว้าง ' + w3 + 'px · สไตล์พร้อม ' + (m3.isStyleLoaded() ? 'ใช่' : 'ไม่') +
+         ' · คอนเทนเนอร์กว้าง ' + w3 + 'px · สไตล์พร้อม ' + (m3ready ? 'ใช่' : 'ไม่') +
          ' · ชิ้นส่วนควัน ' + plumeVolume().features.length +
          '<br>ลองกด 2D แล้วกด 3D ใหม่ ถ้ายังไม่ขึ้นให้กด <code>Cmd+Shift+R</code>');
   }, 25000);
-  const poll = setInterval(finish, 400);
-  m3.on('styledata', finish); m3.on('load', finish);
+  m3.on('style.load', finish); m3.on('render', finish);
   finish();
 }
 
