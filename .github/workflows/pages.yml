@@ -1,0 +1,51 @@
+# ปล่อยแอปตัวอย่างขึ้น GitHub Pages
+#
+# base ของ vite ตั้งเป็น './' ไว้แล้ว (ดู app/vite.config.js) asset จึงอ้างแบบ relative
+# ใช้ได้ทั้งบน sub-path ของ Pages และเวลาเอาไปฝังใต้ path อื่นของเว็บอื่น
+name: Deploy demo
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# ต้องมีสามอันนี้ deploy-pages จึงจะขอ id-token ไปแลก deployment ได้
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# ปล่อยทีละครั้ง ถ้า push ซ้อนกันให้ตัวใหม่ชนะ
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build -w app
+
+      # enablement: true เปิด Pages ให้เองถ้ายังไม่ได้เปิด ไม่ต้องไปกดใน settings
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: app/dist
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
