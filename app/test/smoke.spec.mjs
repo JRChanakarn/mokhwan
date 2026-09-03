@@ -386,6 +386,24 @@ const mlBefore = await page.evaluate(() =>
   performance.getEntriesByType('resource').filter(x => /maplibre/i.test(x.name)).length);
 check(mlBefore === 0, `maplibre ไม่ถูกโหลดจนกว่าจะกด 3D (โหลดแล้ว ${mlBefore} ไฟล์)`);
 
+// เข้าโหมด 3D ต้องพร้อมเร็วและไม่ตันหลัก — ของเดิม poll m3.resize() ทุก 150 มิลลิวินาที
+// สูงสุด 40 รอบ ทำให้แท็บค้าง 30-60 วินาที · วัดทั้งเวลาที่ใช้ และว่าเธรดหลักยังตอบสนอง
+const t3d = Date.now();
+await page.click('#b3d');
+let blocked = 0;
+const spin = setInterval(async () => {
+  const t = Date.now();
+  try { await page.evaluate('1'); if (Date.now() - t > 3000) blocked++; } catch { blocked++; }
+}, 1000);
+try {
+  await page.waitForFunction(() => document.getElementById('m3diag').style.display === 'none', null, { timeout: 30_000 });
+  check(true, `เข้าโหมด 3D พร้อมใน ${((Date.now() - t3d) / 1000).toFixed(1)} วินาที`);
+} catch {
+  check(false, `เข้าโหมด 3D ไม่พร้อมใน 30 วินาที — ${await page.textContent('#m3diag')}`);
+}
+clearInterval(spin);
+check(blocked === 0, `เธรดหลักไม่ตันระหว่างเข้า 3D (ครั้งที่ตอบช้าเกิน 3 วินาที: ${blocked})`);
+
 // host ภายนอกที่แอปคุยด้วยต้องเป็นแค่ผู้ให้บริการแผนที่พื้นฐาน
 // ห้ามมี CDN ของไลบรารีหลุดกลับมา ซึ่งเป็นสิ่งที่งานรื้อโครงนี้กำจัดไป
 const LIB_CDNS = ['cdnjs.cloudflare.com', 'unpkg.com', 'cdn.jsdelivr.net'];

@@ -1174,6 +1174,36 @@ function update3D(){
   }catch(e){ /* style ยังไม่พร้อม */ }
 }
 
+/* รอให้แผนที่ 3 มิติพร้อมด้วย event ของ maplibre แทนการ poll
+   ของเดิมยิง m3.resize() ทุก 150 มิลลิวินาที สูงสุด 40 รอบ เพื่อรอ isStyleLoaded()
+   ซึ่งกับแผนที่ที่เปิดภูมิประเทศไว้ resize() หนักพอที่จะทำให้ main thread ตัน
+   30-60 วินาที แท็บไม่ตอบสนอง และถ่ายภาพหน้าจอไม่ได้เลย
+
+   ตรงนี้ผูกกับ 'load' (สไตล์พร้อมและวาดเฟรมแรกแล้ว) โดยเช็ค loaded() ก่อนเผื่อยิงไปแล้ว
+   ยัง resize() ครั้งเดียวหลังพร้อม เพราะเผื่อกรณีคอนเทนเนอร์เพิ่งได้ขนาดจริง */
+function await3D(w3){
+  if(!m3) return;
+  let done = false;
+  const finish = () => {
+    if(done || !m3) return;
+    done = true;
+    clearTimeout(bail); m3.off('load', finish); m3.off('idle', finish);
+    m3.resize(); update3D(); diag(null);
+  };
+  const bail = setTimeout(() => {
+    if(done || !m3) return;
+    done = true;
+    m3.off('load', finish); m3.off('idle', finish);
+    const cv = m3.getCanvas();
+    diag('<b>แผนที่ 3 มิติเริ่มไม่สำเร็จ</b><br>ขนาดภาพวาด ' + cv.width + '×' + cv.height +
+         ' · คอนเทนเนอร์กว้าง ' + w3 + 'px · สไตล์พร้อม ' + (m3.isStyleLoaded() ? 'ใช่' : 'ไม่') +
+         ' · ชิ้นส่วนควัน ' + plumeVolume().features.length +
+         '<br>ลองกด 2D แล้วกด 3D ใหม่ ถ้ายังไม่ขึ้นให้กด <code>Cmd+Shift+R</code>');
+  }, 25000);
+  if(m3.loaded()) finish();
+  else { m3.on('load', finish); m3.on('idle', finish); }   // idle เป็นตัวสำรองถ้า load ยิงไปก่อนผูก
+}
+
 async function set3D(on){
   if(on && !maplibregl){
     try{
@@ -1196,28 +1226,17 @@ async function set3D(on){
   $('d3bar').style.display = on ? 'block' : 'none';
   if(!on) diag(null);
   if(on){
-    init3D();                                  // สร้างหลังคอนเทนเนอร์มีขนาดแล้ว
+    // อ่านความกว้างก่อนสร้างแผนที่ เพื่อบังคับให้เบราว์เซอร์คำนวณ layout หลังเพิ่งเปลี่ยน
+    // display เป็น block ไม่งั้น maplibre อาจวัดคอนเทนเนอร์ได้ 0 แล้วต้องไล่ resize ทีหลัง
+    const w3 = $('map3d').offsetWidth;
+    init3D();
     const c = map.getCenter();
     if(m3){
       m3.resize();
       m3.jumpTo({center:[c.lng,c.lat], zoom:Math.max(11, map.getZoom()-0.4)});
     }
-    requestAnimationFrame(() => { if(m3){ m3.resize(); update3D(); } });
     diag('<span class="spin"></span> กำลังเริ่มแผนที่ 3 มิติ…');
-    let tries = 0;
-    const kick = setInterval(() => {
-      if(!m3){ clearInterval(kick); return; }
-      m3.resize();
-      const cw = m3.getCanvas().width;
-      if(m3.isStyleLoaded() && cw > 100){ update3D(); clearInterval(kick); diag(null); return; }
-      if(++tries > 40){
-        clearInterval(kick);
-        diag('<b>แผนที่ 3 มิติเริ่มไม่สำเร็จ</b><br>ขนาดภาพวาด ' + cw + '×' + m3.getCanvas().height +
-             ' · สไตล์พร้อม ' + (m3.isStyleLoaded() ? 'ใช่' : 'ไม่') +
-             ' · ชิ้นส่วนควัน ' + plumeVolume().features.length +
-             '<br>ถ้าขนาดเป็น 400×300 แปลว่าไฟล์ที่โหลดยังเป็นเวอร์ชันเก่า กด <code>Cmd+Shift+R</code>');
-      }
-    }, 150);
+    await3D(w3);
   }else if(m3){
     const c = m3.getCenter();
     map.setView([c.lat, c.lng], Math.round(m3.getZoom()+0.4));
