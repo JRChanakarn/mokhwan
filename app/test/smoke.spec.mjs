@@ -327,6 +327,46 @@ check(/ระยะห่างจุดข้อมูล/.test(wind.txt), 'ส
 await page.click('#useWind');
 await page.waitForFunction(() => !window.__MOKHWAN__.S.useWind && !window.__MOKHWAN__.S.computing, { timeout: 45_000 });
 
+// ก้อนควัน 3D ต้องอัดจากกริดจริง ไม่ใช่กรวย Gaussian ที่คำนวณซ้ำ
+// กลับมาโหมดรายชั่วโมงก่อน เช็คก่อนหน้าเปลี่ยนเป็นสะสมค้างไว้
+await page.click('#vHour');
+const vol = await page.evaluate(() => {
+  const M = window.__MOKHWAN__, fc = M.plumeVolume();
+  const r = M.S.result, g = r.grids[M.S.hourIndex] || r.grids[0];
+  // นับเซลล์ในกริดที่เกินเกณฑ์ แล้วเทียบว่าก้อนควันโผล่เฉพาะตรงที่กริดมีค่า
+  let hot = 0; for (let q = 0; q < g.length; q++) if (g[q] >= 1) hot++;
+  // นับบล็อกที่ควรมีควัน จากกริดจริงด้วยตรรกะย่อแบบเดียวกัน — ถ้า 3D ยังลากกรวยของตัวเอง
+  // จำนวนจะไม่มีทางตรงกับตัวเลขนี้
+  const step = Math.max(1, Math.round(r.N / 40)), MB = Math.ceil(r.N / step);
+  let want = 0;
+  for (let bj = 0; bj < MB; bj++) for (let bi = 0; bi < MB; bi++) {
+    let m = 0;
+    for (let j = bj * step; j < Math.min(r.N, (bj + 1) * step); j++)
+      for (let i = bi * step; i < Math.min(r.N, (bi + 1) * step); i++) {
+        const v = g[j * r.N + i]; if (v > m) m = v;
+      }
+    if (m >= 1) want++;
+  }
+  const lid = Math.max(r.perHour[M.S.hourIndex].mix, 60);
+  return { n: fc.features.length, hot, want, N: r.N,
+    props: fc.features.map(f => f.properties),
+    lid, pexag: +document.getElementById('pexag').value,
+    kinds: [...new Set(fc.features.map(f => f.properties.kind))] };
+});
+check(vol.n > 0, `3D มีก้อนควัน ${vol.n} ก้อน จากกริดที่มีค่า ${vol.hot}/${vol.N * vol.N} เซลล์`);
+check(vol.n === vol.want,
+      `จำนวนก้อนตรงกับบล็อกที่กริดมีค่าเป๊ะ (${vol.n} = ${vol.want}) — พิสูจน์ว่ารูปร่างมาจากกริด ไม่ใช่กรวย`);
+check(vol.props.every(p => p.base >= 0 && p.height > p.base),
+      'ทุกก้อนมีความหนาเป็นบวกและฐานไม่ติดลบ');
+// เพดานคือชั้นผสมคูณตัวยกความสูงควัน (การมองเห็นล้วนๆ) ถ้าเผลอบวกความสูงพื้นดินเอง
+// จะทะลุเพดานนี้ทันทีเพราะภูเขาแถวเชียงใหม่สูงหลายร้อยถึงพันเมตร
+const capH = vol.lid * 1.05 * vol.pexag + 5;
+check(vol.props.every(p => p.height <= capH),
+      `ไม่บวกความสูงพื้นดินเอง (maplibre บวกให้แล้ว) — สูงสุด ${Math.max(...vol.props.map(p => p.height))} ม. ไม่เกินเพดาน ${Math.round(capH)} ม.`);
+check(vol.props.every(p => typeof p.conc === 'number' && p.conc >= 1),
+      'ทุกก้อนพกค่าความเข้มข้นจากกริดมาด้วย');
+check(vol.kinds.every(k => k === undefined), 'ไม่มี kind flaming/smold แล้ว (กริดรวมสองเฟส)');
+
 // เลื่อนมุมมองต้องไม่สร้างชั้นภูมิประเทศใหม่ (memoise) ไม่งั้นกระพริบตอนกด play
 const beforeImg = await page.evaluate(() => document.querySelector('.leaflet-terrain-pane img')?.getAttribute('src')?.length);
 await page.click('#vMax'); await page.waitForTimeout(600);

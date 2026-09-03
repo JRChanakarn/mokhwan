@@ -6,6 +6,7 @@ import { run as engineRunSync } from 'mokhwan-engine';
 import EngineWorker from 'mokhwan-engine/worker?worker';
 import { loadDem } from './services/dem.js';
 import { showTerrain, clearTerrain } from './map2d/terrain.js';
+import { buildVolume } from './map3d/volume.js';
 import { attachWindField } from './services/wind-grid.js';
 
 'use strict';
@@ -1037,71 +1038,28 @@ const DEM = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}
 const SATURL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 
 /* Briggs sigmas — สำเนาฝั่ง main สำหรับสร้างรูปทรง */
-function sig(x, st){
-  const f = 1/Math.sqrt(1+1e-4*x);
-  switch(st){
-    case 'A': return [0.22*x*f, 0.20*x];
-    case 'B': return [0.16*x*f, 0.12*x];
-    case 'C': return [0.11*x*f, 0.08*x/Math.sqrt(1+2e-4*x)];
-    case 'D': return [0.08*x*f, 0.06*x/Math.sqrt(1+1.5e-3*x)];
-    case 'E': return [0.06*x*f, 0.03*x/(1+3e-4*x)];
-    default : return [0.04*x*f, 0.016*x/(1+3e-4*x)];
-  }
-}
-function mixHex(a, b, t){
-  const pa = [1,3,5].map(i => parseInt(a.substr(i,2),16));
-  const pb = [1,3,5].map(i => parseInt(b.substr(i,2),16));
-  return '#' + pa.map((v,i) => Math.round(v+(pb[i]-v)*t).toString(16).padStart(2,'0')).join('');
-}
-
-/* สร้างปริมาตรพลูมของชั่วโมงที่เลือก เป็นปริซึมต่อกันตามแนวลม */
+/* ก้อนควัน 3D อัดจาก**กริดที่เอนจินคำนวณจริง** ไม่ใช่กรวย Gaussian ที่คำนวณซ้ำ
+   ของเดิมมีสูตร Briggs ของตัวเองแล้วลากกรวยตรงตาม wdir จึงไม่ขยับตามภูมิประเทศ
+   หรือสนามลมจริงเลย ตอนนี้รูปร่างมาจาก currentGrid() เดียวกับที่ 2D วาด
+   สูตรความหนาแนวดิ่งและเหตุผลที่ห้ามบวกความสูงพื้นดินเอง อยู่ใน map3d/volume.js */
 function plumeVolume(){
-  const feats = [];
-  if(!S.result || !S.origin) return {type:'FeatureCollection', features:feats};
-  const h = S.result.perHour[S.hourIndex];
-  if(!h) return {type:'FeatureCollection', features:feats};
-  const o = S.origin;
-  const th = (270 - h.wdir)*Math.PI/180;
-  const ux = Math.cos(th), uy = Math.sin(th), vx = -uy, vy = ux;
-  const RM = S.rangeKm*1000;
-  const lid = Math.max(h.mix, 60);
-  const PE = +$('pexag').value;              // ยกเฉพาะการมองเห็น ไม่กระทบการคำนวณ
-
-  [{q:h.qFl, H:h.Hfl, u:h.uFl, kind:'flaming'},
-   {q:h.qSm, H:h.Hsm, u:h.uSm, kind:'smold'}].forEach(Ly => {
-    if(!Ly.q || Ly.q <= 0) return;
-    const N = 46;
-    let prev = null;
-    for(let i=0;i<=N;i++){
-      const x = Math.pow(i/N, 1.45)*RM + 12;
-      let [sy,sz] = sig(x, h.stab);
-      sy = Math.sqrt(sy*sy + (h.sy0||10)*(h.sy0||10));
-      sz = Math.min(sz, lid/1.3);
-      const c = Ly.q/(2*Math.PI*Ly.u*sy*sz)*1e6*(h.tf||0.7);
-      const node = {x, w:1.45*sy, top:Math.min(lid*1.05, Ly.H + 1.45*sz), bot:Math.max(0, Ly.H - 1.45*sz), c};
-      if(prev){
-        if(prev.c < 2.5 && node.c < 2.5){ prev = node; continue; }
-        const pts = [[prev.x, prev.w],[node.x, node.w],[node.x, -node.w],[prev.x, -prev.w]]
-          .map(([px,py]) => {
-            const ll = toLL(px*ux + py*vx, px*uy + py*vy, o);
-            return [ll.lng, ll.lat];
-          });
-        pts.push(pts[0]);
-        const cm = (prev.c + node.c)/2;
-        const b = bandOf(cm + 6);
-        const base = BANDS[Math.max(0,b)] ? BANDS[Math.max(0,b)].c : '#9fb0c4';
-        const dilute = Math.max(0, Math.min(0.85, 1 - Math.log10(cm+1)/2.4));
-        feats.push({type:'Feature',
-          properties:{kind:Ly.kind, tier: cm >= 25 ? 'core' : 'edge',
-                      color: mixHex(base, '#b9c6d6', dilute),
-                      base: Math.round(Math.min(prev.bot, node.bot)*PE),
-                      height: Math.round(Math.max(prev.top, node.top)*PE + 4)},
-          geometry:{type:'Polygon', coordinates:[pts]}});
-      }
-      prev = node;
-    }
+  const empty = {type:'FeatureCollection', features:[]};
+  if(!S.result || !S.origin) return empty;
+  const r = S.result, o = S.origin;
+  // ใช้กริดของ**ชั่วโมงที่เลือก** ไม่ใช่ currentGrid() เพราะ 3D เป็นภาพ ณ ขณะหนึ่ง
+  // ความหนาแนวดิ่งมาจากอากาศของชั่วโมงนั้น เอากริดสะสม/ค่าสูงสุดข้ามเวลามาสวมไม่ได้
+  // (และสเกลของกริดสะสมก็คนละหน่วย ทำให้เกณฑ์ µg/m³ ใช้ไม่ได้)
+  const h = r.perHour[S.hourIndex], g = r.grids[S.hourIndex] || r.grids[0];
+  if(!h || !g) return empty;
+  // ย่อให้ได้ราว 40 บล็อกต่อด้านไม่ว่ากริดจะละเอียดแค่ไหน กัน GeoJSON บวมจนแผนที่หนืด
+  const step = Math.max(1, Math.round(r.N/40));
+  return buildVolume({
+    grid: g, hour: h, bg: curBg(), bands: BANDS, bandOf,
+    res: {N:r.N, cell:r.cell, cx:r.cx, cy:r.cy, R:r.R},
+    toLL: (x, y) => toLL(x, y, o),
+    pexag: +$('pexag').value,            // ยกเฉพาะการมองเห็น ไม่กระทบการคำนวณ
+    step,
   });
-  return {type:'FeatureCollection', features:feats};
 }
 function plotsGeo(){
   return {type:'FeatureCollection', features: S.plots.filter(p => p.on !== false).map(p => {
@@ -1153,12 +1111,13 @@ function init3D(){
         {id:'plumeimg', type:'raster', source:'plumeimg', paint:{'raster-opacity':0.75}},
         {id:'plots-fill', type:'fill', source:'plots', paint:{'fill-color':'#e0553f','fill-opacity':0.55}},
         {id:'plots-line', type:'line', source:'plots', paint:{'line-color':'#ff8a6a','line-width':2}},
-        ...['flaming','smold'].flatMap(k => ['edge','core'].map(t => ({
-          id:'vol-'+k+'-'+t, type:'fill-extrusion', source:'vol',
-          filter:['all',['==',['get','kind'],k],['==',['get','tier'],t]],
+        // กริดรวมทั้งเฟสเปลวไฟและคุกรุ่นไว้แล้ว จึงเหลือแค่แยกแก่น/ขอบเพื่อคุมความทึบ
+        ...['edge','core'].map(t => ({
+          id:'vol-'+t, type:'fill-extrusion', source:'vol',
+          filter:['==',['get','tier'],t],
           paint:{'fill-extrusion-color':['get','color'], 'fill-extrusion-base':['get','base'],
                  'fill-extrusion-height':['get','height'], 'fill-extrusion-opacity':0.4}
-        }))),
+        })),
         {id:'recs', type:'circle', source:'recs',
          paint:{'circle-radius':5,'circle-color':['get','color'],'circle-stroke-color':'#0e141c','circle-stroke-width':1.5}},
       ],
@@ -1206,10 +1165,8 @@ function update3D(){
       });
     }
     const op = +$('smokeopa').value;
-    m3.setPaintProperty('vol-smold-core',  'fill-extrusion-opacity', op);
-    m3.setPaintProperty('vol-smold-edge',  'fill-extrusion-opacity', op*0.30);
-    m3.setPaintProperty('vol-flaming-core','fill-extrusion-opacity', op*0.66);
-    m3.setPaintProperty('vol-flaming-edge','fill-extrusion-opacity', op*0.16);
+    m3.setPaintProperty('vol-core', 'fill-extrusion-opacity', op);
+    m3.setPaintProperty('vol-edge', 'fill-extrusion-opacity', op*0.30);
     m3.setPaintProperty('plumeimg','raster-opacity', Math.min(1, op*1.3));
     const sk = skyFor(currentHourKey());
     try{ m3.setSky({'sky-color':sk.sky,'horizon-color':sk.hor,'fog-color':sk.fog,
@@ -1713,5 +1670,5 @@ setWxStatus('ยังไม่ได้ดึงข้อมูล — วา�
    วิธีทดสอบ UI ที่ HANDOFF เขียนไว้ (page.evaluate เรียก S / addPlot ตรงๆ) จะพังทันที
    จึงเปิดช่องทางที่ตั้งใจไว้ ใช้ได้ตอน dev หรือใส่ ?debug ใน URL */
 if(import.meta.env.DEV || new URLSearchParams(location.search).has('debug')){
-  window.__MOKHWAN__ = { S, addPlot, setWxMode, setModel, syncAllInputs, runSim, engineRun, map };
+  window.__MOKHWAN__ = { S, addPlot, setWxMode, setModel, syncAllInputs, runSim, engineRun, map, plumeVolume };
 }
