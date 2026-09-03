@@ -380,6 +380,70 @@ await page.click('#vDose'); await page.waitForTimeout(600);
 const stable = await page.evaluate(() => document.querySelector('.leaflet-terrain-pane img') === window.__terrTest);
 check(beforeImg === afterEl.len && stable, 'เปลี่ยนมุมมองไม่สร้างชั้นภูมิประเทศใหม่ (element เดิม)');
 
+/* ── ความเหมาะสมกับการใช้งานจริง ─────────────────────────────────── */
+
+// แถบความน่าเชื่อถือต้องอยู่บนสุดของแผงสรุปตลอด ไม่ใช่ซ่อนในกล่องเลือกแบบจำลอง
+// และต้องบอก**ทิศของอคติ** ไม่ใช่แค่ว่า "ไม่แม่น" ซึ่งฟังเหมือนพลาดได้สองทางเท่าๆ กัน
+const trust = await page.evaluate(() => {
+  const bar = document.querySelector('#panel .trustbar') || document.querySelector('.trustbar');
+  const panel = document.getElementById('panel');
+  return { has: !!bar, text: bar ? bar.textContent : '',
+           first: !!(bar && panel && panel.querySelector('.trustbar') === panel.firstElementChild) ||
+                  !!(bar && bar.parentElement && bar.parentElement.firstElementChild === bar) };
+});
+check(trust.has, 'มีแถบความน่าเชื่อถือในแผงสรุป');
+check(trust.first, 'อยู่บนสุดของแผง ก่อนตัวเลขใดๆ');
+check(/ต่ำกว่าจริง/.test(trust.text), 'บอกทิศของอคติว่าไปทางต่ำกว่าจริง');
+check(/ห้ามใช้ออกใบอนุญาต|ห้ามใช้/.test(trust.text), 'บอกชัดว่าห้ามใช้ทำอะไร');
+
+// ตัวเลขต้องไม่แสดงนัยสำคัญเกินกว่าที่แบบจำลองรองรับ
+const nums = await page.evaluate(() => {
+  const t = document.getElementById('panel').textContent;
+  // อ่านจาก DOM ไม่ใช่จากข้อความรวม เพื่อให้ได้ค่าของแถวนั้นตรงๆ ไม่ปนกับ note ที่ต่อท้าย
+  const row = [...document.querySelectorAll('#panel .st2')]
+    .find(d => /คนที่อาจอยู่ในเขตเกิน/.test(d.textContent));
+  return { peak: (t.match(/ค่าสูงสุดบนพื้น\s*([^µ]+)/) || [])[1] || '',
+           pop: row ? (row.querySelector('b') || {}).textContent || '' : '(ไม่พบแถว)',
+           note: t };
+});
+check(/~/.test(nums.peak), `ค่าสูงสุดแสดงเป็นค่าประมาณ (${nums.peak.trim()})`);
+// แถวจำนวนคนต้องเป็น "ราว a–b คน" หรือ "ไม่มี" เท่านั้น ห้ามเป็นตัวเลขเดียว
+check(/^(ราว [\d,]+–[\d,]+ คน|ไม่มี)$/.test(nums.pop.trim()),
+      `แถวจำนวนคนไม่ใช่ตัวเลขเจาะจง ("${nums.pop.trim()}")`);
+// ทดสอบตัวจัดรูปแบบตรงๆ เพราะเส้นทางแสดงช่วงต้องมีพื้นที่เกิน 37.5 ซึ่งขึ้นกับฉาก
+// ขยายแปลงไม่ช่วยเพราะ sy0 โตตามขนาดแปลง ควันเจือจางกว้างขึ้นแทนที่จะเข้มขึ้น
+const fmtChk = await page.evaluate(() => {
+  const M = window.__MOKHWAN__;
+  return { r0: M.popRange(0), r1: M.popRange(500), r2: M.popRange(12),
+           n1: M.softNum(446), n2: M.softNum(26.4), n3: M.softNum(3.27) };
+});
+check(/^ราว [\d,]+–[\d,]+ คน$/.test(fmtChk.r1) && /^ราว [\d,]+–[\d,]+ คน$/.test(fmtChk.r2),
+      `จำนวนคนแสดงเป็นช่วง (500 → ${fmtChk.r1})`);
+check(fmtChk.r0 === 'ไม่มี', 'ไม่มีคนในเขตก็บอกว่าไม่มี ไม่ใช่ 0 คน');
+check(fmtChk.n1 === '~450' && fmtChk.n2 === '~26',
+      `ปัดนัยสำคัญตามขนาด (446 → ${fmtChk.n1} · 26.4 → ${fmtChk.n2} · 3.27 → ${fmtChk.n3})`);
+check(/ไม่ใช่ข้อมูลทะเบียนประชากรจริง/.test(nums.note), 'บอกว่าจำนวนคนไม่ใช่ข้อมูลทะเบียนจริง');
+
+// บันทึกการรันต้องมีเวอร์ชันและผลสรุป ไม่ใช่แค่อินพุต
+const rec = await page.evaluate(() => {
+  const M = window.__MOKHWAN__;
+  // เรียกตัวสร้างบันทึกผ่านการบันทึกฉากจริงจะดาวน์โหลดไฟล์ จึงอ่านจากที่ export ไว้
+  return M.runRecord ? M.runRecord() : null;
+});
+check(!!rec, 'สร้างบันทึกการรันได้');
+check(!!rec && /^v\d{4}-\d{2}-\d{2}/.test(rec.appVer) && /^\d+\.\d+\.\d+$/.test(rec.engineVer),
+      `ประทับเวอร์ชันแอปและเอนจิน (${rec && rec.appVer} · engine ${rec && rec.engineVer})`);
+check(!!rec && typeof rec.peakGround === 'number' && Array.isArray(rec.hours) && rec.hours.length > 0,
+      `บันทึกผลสรุปที่เห็นบนจอ (พีค ${rec && rec.peakGround} · ${rec && rec.hours.length} ชั่วโมง)`);
+check(!!rec && /ต่ำกว่าจริง/.test(rec.note || ''), 'บันทึกพกคำเตือนไปด้วยในไฟล์');
+
+await page.evaluate(() => {
+  const M = window.__MOKHWAN__;
+  M.S.plots[0].rai = 20; document.getElementById('pop').value = '0';
+  document.getElementById('pop').oninput(); M.runSim();
+});
+await page.waitForFunction(() => !window.__MOKHWAN__.S.computing, null, { timeout: 45_000 });
+
 /* ── ฝุ่นต่อ กก. แยกตามเฟสการเผา ────────────────────────────────────── */
 
 // ปริยายต้องเป็น 1 = พฤติกรรมเดิม ขยับแล้วต้องย้ายมวลไม่ใช่เพิ่มมวล

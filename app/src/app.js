@@ -2,11 +2,15 @@ import './styles.css';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import * as d3 from 'd3';
-import { run as engineRunSync } from 'mokhwan-engine';
+import { run as engineRunSync, VERSION as ENGINE_VERSION } from 'mokhwan-engine';
 import EngineWorker from 'mokhwan-engine/worker?worker';
 import { loadDem } from './services/dem.js';
 import { showTerrain, clearTerrain } from './map2d/terrain.js';
 import { buildVolume } from './map3d/volume.js';
+
+/* เวอร์ชันของแอป — แหล่งเดียว ใช้ทั้งป้ายบนหัวและบันทึกการรัน
+   หน่วยงานที่เอาผลไปใช้ตัดสินใจต้องย้อนตรวจได้ว่าวันนั้นรันด้วยอะไร */
+const APP_VER = 'v2026-09-03';
 import { attachWindField } from './services/wind-grid.js';
 
 'use strict';
@@ -647,8 +651,10 @@ async function fetchOsm(){
     ');out center 400;';
   const eps = ['https://overpass-api.de/api/interpreter',
                'https://overpass.kumi.systems/api/interpreter',
-               'https://overpass.private.coffee/api/interpreter',
-               'https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
+               'https://overpass.private.coffee/api/interpreter'];
+  // เคยมี mirror ตัวที่สี่ ถอดออกเพราะโฮสต์อยู่ในเขตที่หน่วยงานรัฐไทยมีข้อพิจารณา
+  // เชิงนโยบายเรื่องปลายทางของคำขอ · สามตัวที่เหลือครอบพอแล้ว
+  // รายชื่อ host ที่อนุญาตและที่ห้าม อยู่ใน app/test/sources.test.js
   for(const ep of eps){
     try{
       const r = await fetch(ep, {method:'POST', body:'data=' + encodeURIComponent(q),
@@ -705,6 +711,30 @@ function renderPanel(){
 function viewLabel(){
   return S.view === 'hour' ? 'ชั่วโมงที่เลือก' : S.view === 'max' ? 'ค่าพีครายชั่วโมงสูงสุด' : 'ค่าเฉลี่ย 24 ชม.';
 }
+/* ตัวเลขจากแบบจำลองไม่ควรแสดงนัยสำคัญเกินกว่าที่แบบจำลองรองรับ
+   446 อ่านเหมือนค่าพยากรณ์ ~450 อ่านเหมือนค่าประมาณ ซึ่งตรงกับความจริงกว่า */
+function softNum(v){
+  if(!isFinite(v)) return '–';
+  if(v >= 100) return '~' + (Math.round(v/10)*10).toLocaleString('th-TH');
+  if(v >= 10)  return '~' + Math.round(v);
+  return fmt(v,1);
+}
+/* จำนวนคนเป็นการคูณพื้นที่กับความหนาแน่นที่ผู้ใช้กรอก ไม่ใช่ข้อมูลทะเบียน
+   แสดงเป็นช่วงกว้างเพื่อไม่ให้ถูกยกไปอ้างเป็นตัวเลขผู้ได้รับผลกระทบ */
+function popRange(p){
+  if(!(p > 0)) return 'ไม่มี';
+  var lo = Math.round(p*0.5/10)*10, hi = Math.round(p*2/10)*10;
+  return 'ราว ' + lo.toLocaleString('th-TH') + '–' + hi.toLocaleString('th-TH') + ' คน';
+}
+/* แถบความน่าเชื่อถือ อยู่บนสุดของแผงสรุปตลอด
+   ข้อมูลที่สำคัญที่สุดคือ**ทิศของอคติ** ผู้ใช้ที่เห็นเลขต้องรู้ว่ามันมีแนวโน้มต่ำกว่าจริง
+   ไม่ใช่แค่ว่า "ไม่แม่น" ซึ่งฟังเหมือนพลาดได้ทั้งสองทางเท่าๆ กัน */
+function trustBar(){
+  return '<div class="trustbar"><b>ผลจากแบบจำลอง ไม่ใช่ค่าตรวจวัด และยังไม่เคยตรวจสอบเทียบสถานีจริง</b>' +
+    '<span class="why">ช่องว่างที่รู้อยู่เกือบทั้งหมดดันผลไป<b>ทางต่ำกว่าจริง</b> — ' +
+    'ยังไม่คิดอนุภาคทุติยภูมิ การคลุกลงพื้นตอนเช้า การสะสมข้ามวัน และควันจากไฟอื่น · ' +
+    'ใช้เทียบทางเลือกได้ <b>ห้ามใช้ออกใบอนุญาตหรือประกาศเตือนภัย</b></span></div>';
+}
 function renderSummary(el){
   const r = S.result, st = S.stats || {areas:[], dmax:0, dmaxD:0, reach:0};
   const BG = curBg();
@@ -725,8 +755,9 @@ function renderSummary(el){
   });
 
   el.innerHTML =
+    trustBar() +
     '<div class="sub">' + viewLabel() + (S.view==='hour' && hrs[S.hourIndex] ? ' · ' + hrs[S.hourIndex].t.slice(11) + ' น.' : '') + '</div>' +
-    '<div class="st2"><span>ค่าสูงสุดบนพื้น</span><b style="color:' + recColor(totMax) + '">' + fmt(totMax,0) + ' µg/m³</b></div>' +
+    '<div class="st2"><span>ค่าสูงสุดบนพื้น</span><b style="color:' + recColor(totMax) + '">' + softNum(totMax) + ' µg/m³</b></div>' +
     '<div class="st2"><span>ห่างจากกองไฟ</span><b>' + fmt(st.dmaxD/1000,2) + ' กม.</b></div>' +
     '<div class="st2"><span>เกิน 37.5 ไปไกลถึง</span><b>' + (st.reach > 0 ? fmt(st.reach/1000,2) + ' กม.' : 'ไม่เกิน') + '</b></div>' +
     '<div class="st2"><span>ทิศที่ควันไปเฉลี่ย</span><b>' + compass(Math.atan2(r.meanUx, r.meanUy)*180/Math.PI) + '</b></div>' +
@@ -736,8 +767,10 @@ function renderSummary(el){
     '<div class="sep"></div>' +
     '<div class="sub">พื้นที่ตามระดับคุณภาพอากาศ</div>' +
     (bands || '<div class="hint">ควันเจือจางต่ำกว่าเกณฑ์ในระยะที่จำลอง</div>') +
-    '<div class="st2" style="margin-top:6px"><span>ประชากรในเขตเกิน 37.5</span><b>≈ ' +
-      Math.round(pop).toLocaleString('th-TH') + ' คน</b></div>' +
+    '<div class="st2" style="margin-top:6px"><span>คนที่อาจอยู่ในเขตเกิน 37.5</span><b>' +
+      popRange(pop) + '</b></div>' +
+    '<div class="note">จำนวนคนคือ พื้นที่ × ความหนาแน่นที่กรอกไว้ (' + fmt(S.pop,0) +
+      ' คน/กม²) <b>ไม่ใช่ข้อมูลทะเบียนประชากรจริง</b> ใช้เทียบขนาดผลกระทบระหว่างทางเลือกเท่านั้น</div>' +
     (anyCap ? '<div class="warnbox">บางชั่วโมงพลูมชนเพดานชั้นผสม ควันขึ้นต่อไม่ได้จึงถูกกดกลับลงมาที่พื้น</div>' : '') +
     (rain ? '<div class="hint">มีฝนใน ' + rain + ' ชั่วโมง คิดผลการชะล้างควันแล้ว</div>' : '') +
     '<div class="note">อ้างอิงมาตรฐาน PM2.5 ของไทย 37.5 µg/m³ (เฉลี่ย 24 ชม.) และค่าแนะนำ WHO 15 µg/m³ · รวมพื้นหลัง ' + fmt(BG,0) + ' µg/m³' +
@@ -1501,8 +1534,35 @@ function exportGeo(){
   const fc = {type:'FeatureCollection', features: plots.concat(S.contours)};
   download('smoke-plume.geojson', JSON.stringify(fc), 'application/geo+json');
 }
+/* สรุปผลที่เห็นบนหน้าจอ ณ ตอนบันทึก — เพื่อให้ย้อนตรวจได้ว่าวันนั้นเห็นอะไร
+   ไฟล์ฉากเดิมเก็บแต่อินพุต ถ้าสูตรในเอนจินเปลี่ยน โหลดกลับมาแล้วจะได้เลขใหม่
+   โดยไม่มีใครรู้ว่าเลขเดิมคืออะไร ซึ่งใช้เป็นหลักฐานไม่ได้ */
+function runRecord(){
+  const r = S.result;
+  if(!r) return null;
+  const st = S.stats || {areas:[], dmax:0, dmaxD:0, reach:0};
+  const BG = curBg();
+  const overIdx = BLO.indexOf(37.5);
+  return {
+    savedAt: new Date().toISOString(),
+    appVer: APP_VER, engineVer: ENGINE_VERSION,
+    model: S.model, useWind: !!S.useWind, trueScale: !!S.trueScale,
+    sigmaWsFloor: S.wsFloor, efRatio: S.efRatio,
+    demSource: S.dem && S.dem.ok ? (S.dem.meta && S.dem.meta.source) : null,
+    bgUsed: BG,
+    peakGround: +(st.dmax + BG).toFixed(1),
+    peakDistKm: +(st.dmaxD/1000).toFixed(2),
+    reachOver37_5Km: +(st.reach/1000).toFixed(2),
+    areaOver37_5Km2: +st.areas.slice(overIdx).reduce((a,b) => a+b, 0).toFixed(3),
+    totalEmitKg: +r.totalEmitKg.toFixed(2),
+    hours: r.perHour.map(h => ({t:h.t, ws:h.ws, wdir:h.wdir, stab:h.stab, mix:h.mix,
+                                max:+h.max.toFixed(1), Fr: h.Fr == null ? null : +h.Fr.toFixed(2)})),
+    note: 'ผลจากแบบจำลอง ไม่ใช่ค่าตรวจวัด ยังไม่เคยตรวจสอบเทียบสถานีจริง ' +
+          'ช่องว่างที่รู้อยู่เกือบทั้งหมดดันผลไปทางต่ำกว่าจริง',
+  };
+}
 function saveScenario(){
-  const data = {v:1, plots:S.plots.map(p => ({...p,
+  const data = {v:1, run: runRecord(), plots:S.plots.map(p => ({...p,
       latlng: p.latlng ? [p.latlng.lat,p.latlng.lng] : null,
       latlngs: p.latlngs ? p.latlngs.map(c => [c.lat,c.lng]) : null})),
     receptors:S.receptors.map(r => ({name:r.name, kind:r.kind, src:r.src, ll:[r.ll.lat,r.ll.lng]})),
@@ -1814,7 +1874,7 @@ function syncAllInputs(){
 }
 
 /* ---------------- boot ---------------- */
-$('ver').textContent = 'v2026-09-02d';
+$('ver').textContent = APP_VER;
 setBase(0);
 syncAllInputs();
 setMode('point');
@@ -1831,5 +1891,5 @@ setWxStatus('ยังไม่ได้ดึงข้อมูล — วา�
 if(import.meta.env.DEV || new URLSearchParams(location.search).has('debug')){
   // m3 เป็น let ที่ถูกสร้างทีหลัง จึงต้องเป็น getter ไม่ใช่ค่าที่ snapshot ไว้ตอน boot
   window.__MOKHWAN__ = { S, addPlot, setWxMode, setModel, syncAllInputs, runSim, engineRun, map,
-                         plumeVolume, pending, get m3(){ return m3; }, get worker(){ return worker; } };
+                         plumeVolume, pending, runRecord, popRange, softNum, get m3(){ return m3; }, get worker(){ return worker; } };
 }
