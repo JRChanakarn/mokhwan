@@ -8,6 +8,7 @@ import { loadDem } from './services/dem.js';
 import { showTerrain, clearTerrain } from './map2d/terrain.js';
 import { buildVolume } from './map3d/volume.js';
 import { skyFor } from './map3d/sky-palette.js';
+import { hourWeights } from './services/emission.js';
 
 /* เวอร์ชันของแอป — แหล่งเดียว ใช้ทั้งป้ายบนหัวและบันทึกการรัน
    หน่วยงานที่เอาผลไปใช้ตัดสินใจต้องย้อนตรวจได้ว่าวันนั้นรันด้วยอะไร */
@@ -53,6 +54,9 @@ const S = {
   wxMode:'auto', wx:null, wxErr:null,
   man:{ws:2.0, wdir:45, stab:'E', mix:300},
   date:'', time:'08:00', dur:3,
+  /* ช่วงที่จำลอง แยกจาก dur (ช่วงที่เผา) · ปริยาย = เผา + 4 ชม. เท่าอายุก้อนควันในโหมด puff
+     ตั้งยาวกว่านั้นได้ถึง 24 แต่ช่องท้ายๆ จะว่าง เพราะก้อนควันหมดอายุไปแล้ว */
+  window:7,
   bg:25, bgAuto:false, bgSeries:null, avg:60, rangeKm:10, res:180, pop:180, opacity:0.6, depo:true,
   view:'hour', hourIndex:0, tab:'sum',
   result:null, origin:null, computing:false,
@@ -288,7 +292,8 @@ function setWxStatus(html, isErr){
 
 /* สร้างชุดชั่วโมงสำหรับการจำลอง */
 function buildHours(){
-  const n = Math.max(1, Math.round(S.dur));
+  // ความยาว timeline = ช่วงที่จำลอง ไม่ใช่ช่วงที่เผา
+  const n = Math.max(1, Math.round(S.window || S.dur));
   const start = new Date(S.date + 'T' + S.time + ':00');
   const out = [];
   for(let i=0;i<n;i++){
@@ -303,13 +308,6 @@ function buildHours(){
   }
   return out;
 }
-function hourWeights(n){
-  const w = [], p = [];
-  let s = 0;
-  for(let i=0;i<n;i++){ const x = (i+0.5)/n; const v = Math.exp(-1.6*x); w.push(v); p.push(x); s += v; }
-  return {w: w.map(v => v/s), p};
-}
-
 /* ---------------- fires → payload ---------------- */
 function fireCentroid(){
   const on = S.plots.filter(p => p.on !== false);
@@ -370,7 +368,7 @@ async function runSim(){
 
   const hours = buildHours();
   if(S.hourIndex >= hours.length) S.hourIndex = hours.length - 1;
-  const hw = hourWeights(hours.length);
+  const hw = hourWeights(hours.length, S.dur);
 
   let ux = 0, uy = 0;
   hours.forEach(h => { const th = (270-h.wdir)*Math.PI/180; ux += Math.cos(th); uy += Math.sin(th); });
@@ -1694,7 +1692,7 @@ function saveScenario(){
       latlng: p.latlng ? [p.latlng.lat,p.latlng.lng] : null,
       latlngs: p.latlngs ? p.latlngs.map(c => [c.lat,c.lng]) : null})),
     receptors:S.receptors.map(r => ({name:r.name, kind:r.kind, src:r.src, ll:[r.ll.lat,r.ll.lng]})),
-    date:S.date, time:S.time, dur:S.dur, bg:S.bg, bgAuto:S.bgAuto, man:S.man, wxMode:S.wxMode,
+    date:S.date, time:S.time, dur:S.dur, window:S.window, bg:S.bg, bgAuto:S.bgAuto, man:S.man, wxMode:S.wxMode,
     rangeKm:S.rangeKm, res:S.res, pop:S.pop, depo:S.depo, model:S.model, wsFloor:S.wsFloor, useWind:S.useWind, trueScale:S.trueScale, efRatio:S.efRatio, center:[map.getCenter().lat,map.getCenter().lng], zoom:map.getZoom()};
   download('smoke-scenario.json', JSON.stringify(data,null,1), 'application/json');
 }
@@ -1707,7 +1705,7 @@ function loadScenario(txt){
     S.nextId = Math.max(1, ...S.plots.map(p => p.id||0)) + 1;
     S.sel = S.plots.length ? S.plots[0].id : null;
     S.receptors = (d.receptors||[]).map(r => ({name:r.name, kind:r.kind, src:r.src, ll:L.latLng(r.ll[0],r.ll[1])}));
-    Object.assign(S, {date:d.date||S.date, time:d.time||S.time, dur:d.dur||S.dur, bg:d.bg??S.bg,
+    Object.assign(S, {date:d.date||S.date, time:d.time||S.time, dur:d.dur||S.dur, window:d.window||S.window, bg:d.bg??S.bg,
       man:d.man||S.man, wxMode:d.wxMode||'auto', rangeKm:d.rangeKm||10, res:d.res||180, bgAuto:!!d.bgAuto,
       pop:d.pop??180, depo:d.depo!==false});
     if(d.center) map.setView(d.center, d.zoom||13);
@@ -1791,7 +1789,29 @@ $('bdate').onchange = () => {
   schedule();
 };
 $('btime').onchange = () => { S.time = $('btime').value; schedule(); };
-$('bdur').oninput   = () => { S.dur = Math.max(1, Math.min(12, +$('bdur').value||1)); S.hourIndex = 0; schedule(); };
+$('bdur').oninput   = () => {
+  S.dur = Math.max(1, Math.min(12, +$('bdur').value||1));
+  // ช่วงที่ดูต้องไม่สั้นกว่าช่วงที่เผา ไม่งั้นมวลที่ปล่อยจะถูกอัดลงช่องที่มีอยู่จนผิดรูป
+  if(S.window < S.dur){ S.window = S.dur; $('bwin').value = S.window; }
+  syncWindowNote(); S.hourIndex = 0; schedule();
+};
+$('bwin').oninput   = () => {
+  S.window = Math.max(S.dur, Math.min(24, +$('bwin').value||S.dur));
+  syncWindowNote(); S.hourIndex = 0; schedule();
+};
+/* บอกความจริงตรงๆ ว่าหลังไฟดับจะเห็นอะไร
+   วัดจากเอนจินจริงแล้ว (app/test/window.test.js): **ทั้งสองโมเดลได้ศูนย์ทันทีที่ไฟดับ**
+   เพราะ puffs ถูกสร้างใหม่ทุกชั่วโมงใน puff.ts และ gauss เป็น steady-state
+   ห้ามเขียนป้ายให้ดูดีกว่าความจริง คนตั้งไว้ 24 แล้วเจอช่องว่างต้องรู้ล่วงหน้าว่าทำไม */
+function syncWindowNote(){
+  const after = Math.max(0, S.window - S.dur);
+  const el = $('winnote');
+  if(!el) return;
+  el.textContent = after
+    ? `⚠ ${after} ชั่วโมงหลังไฟดับจะว่างเปล่า — แบบจำลองไม่เก็บควันข้ามชั่วโมง ` +
+      `ควันหายทันทีที่หยุดปล่อย ถ้าอยากเห็นควันนานขึ้นให้เพิ่ม “เผานาน”`
+    : 'ดูเท่าช่วงที่เผาพอดี — ทุกชั่วโมงมีควัน';
+}
 
 /* สถานะ DEM ใต้ปุ่มเลือกแบบจำลอง — แหล่ง · ความละเอียด · ต่างระดับ · Froude รายชั่วโมง */
 /* สถานะสนามลมจริง — บอกตรงๆ ว่าหยาบแค่ไหน ไม่ขายเกินจริง */
@@ -1865,6 +1885,8 @@ function setModel(m){
       'ระดับที่ใช้ตัดสินใจเชิงนโยบายต้องใช้ CALPUFF หรือ WRF-Chem'
     : 'แบบจำลอง Gaussian plume ระดับคัดกรอง สมมติพื้นราบและลมคงที่ในแต่ละชั่วโมง ไม่คิดการไหลลงร่องเขาตอนกลางคืน ' +
       'ใช้เปรียบเทียบทางเลือกได้ดี แต่ไม่ใช่ค่าตรวจวัดจริง';
+  // ป้าย "ดูยาว" บอกคนละเรื่องกันในสองโหมด (puff ควันอยู่ต่อ 4 ชม. · gauss หายทันที)
+  syncWindowNote();
   schedule();
 }
 function setWxMode(m){
@@ -2012,6 +2034,7 @@ $('bGeoloc').onclick = () => {
 
 function syncAllInputs(){
   $('bdate').value = S.date; $('btime').value = S.time; $('bdur').value = S.dur;
+  $('bwin').value = S.window; syncWindowNote();
   $('bg').value = S.bg; $('range').value = S.rangeKm; $('res').value = S.res;
   $('pop').value = S.pop; $('depo').checked = S.depo; $('opa').value = S.opacity;
   $('bgAuto').checked = S.bgAuto;
