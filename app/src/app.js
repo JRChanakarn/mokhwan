@@ -56,7 +56,8 @@ const S = {
   bg:25, bgAuto:false, bgSeries:null, avg:60, rangeKm:10, res:180, pop:180, opacity:0.6, depo:true,
   view:'hour', hourIndex:0, tab:'sum',
   result:null, origin:null, computing:false,
-  model:'gauss', dem:null, progress:null, wsFloor:1.0, efRatio:1.0, useWind:false, trueScale: false, windInfo:null,   // ก้าว 5: โหมดแบบจำลอง · DEM ที่โหลดได้ · ความคืบหน้ารายชั่วโมง
+  model:'gauss', dem:null, progress:null, wsFloor:1.0, efRatio:1.0, useWind:false, trueScale: false, windInfo:null,
+  renderer3:'three',   // ตัววาดโหมด 3 มิติ 'three' | 'maplibre' (ของเดิม เก็บเป็นตัวสำรอง)   // ก้าว 5: โหมดแบบจำลอง · DEM ที่โหลดได้ · ความคืบหน้ารายชั่วโมง
 };
 (function initDate(){
   const d = new Date();
@@ -1240,6 +1241,7 @@ function diag(html){
   el.innerHTML = html; el.style.display = 'block';
 }
 function update3D(){
+  if(S.renderer3 === 'three'){ updateThree3D(); return; }
   if(!m3 || !m3ready) return;          // m3ready = สไตล์ถูก parse แล้ว ไม่ใช่ไทล์ครบ
   try{
     m3.getSource('vol').setData(plumeVolume());
@@ -1299,7 +1301,85 @@ function await3D(w3){
   finish();
 }
 
+/* ---------------- 3D mode (three.js) ---------------- */
+/* ตัววาดตัวที่สอง อยู่คนละคอนเทนเนอร์กับ MapLibre และไม่แชร์สถานะใดๆ กันเลย
+   เจตนาคือของเดิมต้องใช้ได้เหมือนเดิมเป๊ะไม่ว่าตัวใหม่จะพังยังไง
+   ไฟล์ฝั่ง three ทั้งหมดอยู่ใต้ map3d/three/ และถูก import แบบ dynamic
+   three.js จึงไม่เข้า bundle แรก เหมือนที่ maplibre-gl ทำอยู่ */
+let g3 = null, g3loading = false;
+
+function view3(){
+  const r = S.result, o = S.origin;
+  return {
+    origin: o, result: r, hourIndex: S.hourIndex, hourKey: currentHourKey(),
+    // ใช้ DEM เฉพาะเมื่อเป็นของรอบคำนวณเดียวกัน ไม่งั้นภูมิประเทศจะเป็นของที่อื่น
+    elev: (S.dem && S.dem.ok && r && S.dem.reqId === r.reqId) ? S.dem.elev : null,
+    bands: BANDS, bandOf, bg: curBg(),
+    toLL: (x,y) => o ? toLL(x, y, o) : null,
+    toXY: ll => o ? toXY(ll, o) : null,
+    opts: { exag:+$('exag').value, pexag:+$('pexag').value,
+            smokeOpacity:+$('smokeopa').value, showGroundLayer:$('showGroundLayer').checked },
+    plots: S.plots.filter(p => p.on !== false), receptors: S.receptors, groundRaster: S.lastRaster,
+  };
+}
+
+async function initThree3D(){
+  if(g3 || g3loading) return;
+  g3loading = true;
+  diag('<span class="spin"></span> กำลังเริ่มฉาก 3 มิติ…');
+  try{
+    const mod = await import('./map3d/three/index.js');
+    g3 = await mod.create3D($('map3dgl'), view3());
+    diag(g3.notes && g3.notes.length ? g3.notes.join('<br>') : null);
+  }catch(err){
+    g3 = null;
+    diag('<b>เปิดตัววาดแบบใหม่ไม่สำเร็จ</b><br>' + ((err && err.message) || '') +
+         '<br>กดปุ่ม “แบบเดิม” เพื่อใช้ตัวสำรอง');
+  }finally{ g3loading = false; }
+}
+
+function updateThree3D(){ if(g3) try{ g3.update(view3()); }catch(e){} }
+
+function disposeThree3D(){ if(g3){ try{ g3.dispose(); }catch(e){} g3 = null; } }
+
+function setRenderer3(which){
+  S.renderer3 = which;
+  $('r3three').setAttribute('aria-pressed', String(which === 'three'));
+  $('r3ml').setAttribute('aria-pressed', String(which === 'maplibre'));
+  $('note3d').style.display = which === 'three' ? 'block' : 'none';
+  try{ localStorage.setItem('renderer3', which); }catch(e){}
+}
+
+function switchRenderer3(which){
+  if(S.renderer3 === which) return;
+  const was3D = is3D;
+  if(was3D) set3D(false);                 // ปิดตัวเดิมให้สะอาดก่อน ไม่ให้มีสถานะค้างข้ามตัววาด
+  setRenderer3(which);
+  if(was3D) set3D(true);
+}
+$('r3three').onclick = () => switchRenderer3('three');
+$('r3ml').onclick    = () => switchRenderer3('maplibre');
+/* กู้ตัววาดที่ผู้ใช้เลือกไว้ครั้งก่อน — ต้องเรียกก่อนเปิดโหมด 3 มิติครั้งแรกเสมอ
+   และเรียกเสมอแม้ไม่มีค่าเก็บไว้ เพื่อให้ป้าย note3d กับ aria-pressed ตรงกับ S ตั้งแต่ต้น */
+try{
+  const v = localStorage.getItem('renderer3');
+  setRenderer3(v === 'maplibre' || v === 'three' ? v : S.renderer3);
+}catch(e){ setRenderer3(S.renderer3); }
+
 async function set3D(on){
+  if(S.renderer3 === 'three'){
+    is3D = on;
+    document.body.classList.toggle('is3d', on);
+    $('b2d').setAttribute('aria-pressed', !on);
+    $('b3d').setAttribute('aria-pressed', on);
+    $('map').style.display     = on ? 'none'  : 'block';
+    $('map3d').style.display   = 'none';
+    $('map3dgl').style.display = on ? 'block' : 'none';
+    $('d3bar').style.display   = on ? 'block' : 'none';
+    if(on){ await initThree3D(); if(g3) g3.resize(); }
+    else  { disposeThree3D(); diag(null); map.invalidateSize(); }
+    return;
+  }
   if(on && !maplibregl){
     try{
       maplibregl = (await import('maplibre-gl')).default;
@@ -1338,7 +1418,7 @@ async function set3D(on){
     map.invalidateSize();
   }
 }
-window.addEventListener('resize', () => { if(is3D && m3) m3.resize(); });
+window.addEventListener('resize', () => { if(is3D && m3) m3.resize(); if(is3D && g3) g3.resize(); });
 $('b2d').onclick = () => set3D(false);
 $('b3d').onclick = () => set3D(true);
 $('exag').oninput = () => {
