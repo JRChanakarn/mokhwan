@@ -54,9 +54,10 @@ const S = {
   wxMode:'auto', wx:null, wxErr:null,
   man:{ws:2.0, wdir:45, stab:'E', mix:300},
   date:'', time:'08:00', dur:3,
-  /* ช่วงที่จำลอง แยกจาก dur (ช่วงที่เผา) · ปริยาย = เผา + 4 ชม. เท่าอายุก้อนควันในโหมด puff
-     ตั้งยาวกว่านั้นได้ถึง 24 แต่ช่องท้ายๆ จะว่าง เพราะก้อนควันหมดอายุไปแล้ว */
-  window:7,
+  /* ช่วงที่จำลอง แยกจาก dur (ช่วงที่เผา)
+     **ปริยายเท่ากับ dur** เพราะเอนจินไม่มีความจำข้ามชั่วโมง ชั่วโมงหลังไฟดับจึงว่างเปล่า
+     (ยืนยันด้วย app/test/window.test.js) ตั้งยาวกว่านี้ได้ถึง 24 แต่จะได้ช่องว่างเปล่า */
+  window:3,
   bg:25, bgAuto:false, bgSeries:null, avg:60, rangeKm:10, res:180, pop:180, opacity:0.6, depo:true,
   view:'hour', hourIndex:0, tab:'sum',
   result:null, origin:null, computing:false,
@@ -1309,7 +1310,7 @@ let g3 = null, g3loading = false;
 function view3(){
   const r = S.result, o = S.origin;
   return {
-    origin: o, result: r, hourIndex: S.hourIndex, hourKey: currentHourKey(),
+    origin: o, result: r, hourIndex: S.hourIndex, hourKey: currentHourKey(), view: S.view,
     // ใช้ DEM เฉพาะเมื่อเป็นของรอบคำนวณเดียวกัน ไม่งั้นภูมิประเทศจะเป็นของที่อื่น
     elev: (S.dem && S.dem.ok && r && S.dem.reqId === r.reqId) ? S.dem.elev : null,
     bands: BANDS, bandOf, bg: curBg(),
@@ -1359,7 +1360,11 @@ async function initThree3D(){
   }finally{ g3loading = false; }
 }
 
-function updateThree3D(){ if(g3) try{ g3.update(view3()); }catch(e){} }
+function updateThree3D(){
+  if(!g3) return;
+  // facade คืนข้อความเตือนถ้าโหมดมุมมองปัจจุบันแสดงก้อนควันไม่ได้ ให้แอปเป็นคนแสดงเอง
+  try{ diag(g3.update(view3()) || null); }catch(e){}
+}
 
 function disposeThree3D(){ if(g3){ try{ g3.dispose(); }catch(e){} g3 = null; } }
 

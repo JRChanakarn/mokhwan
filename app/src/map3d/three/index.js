@@ -48,7 +48,8 @@ export async function create3D(container, view) {
     stage.add(volume.mesh);
     // shader ทำงานในระบบพิกัดกล่อง จึงต้องบอกตำแหน่งกล้องใหม่ทุกเฟรม ไม่ใช่ตอน update
     stage.onFrame(() => volume.syncCamera(stage.camera));
-    pushVolume(view);
+    const firstNote = pushVolume(view);
+    if (firstNote) notes.push(firstNote);
     pushOverlays(view);
 
     // โมเสกครอบ 1.4R เท่ากับที่ dem.js ใช้ เพราะ (cx,cy) เลื่อนตามลมได้ถึง 0.32R
@@ -70,8 +71,23 @@ export async function create3D(container, view) {
   /* ย่อให้ได้ราว 160 บล็อกต่อด้านไม่ว่ากริดจะละเอียดแค่ไหน ขนาด texture จึงไม่ผูกกับ
      ความละเอียดที่ผู้ใช้เลือก และ VRAM ไม่บวมตาม · ลองที่ 96 แล้วเห็นขอบเป็นบันไดชัด
      เพราะบล็อกกว้างราว 230 ม. — กล่องถูกย่อให้พอดีพลูมอยู่แล้ว จึงจ่ายไหว */
+  /**
+   * คืนข้อความเตือนถ้ามี หรือ null
+   *
+   * **ก้อนควัน 3 มิติแสดงได้เฉพาะมุมมองรายชั่วโมง** เพราะกริด "พีคสูงสุด" กับ
+   * "เฉลี่ย 24 ชม." รวมหลายชั่วโมงที่ลมพัดคนละทิศเข้าด้วยกัน แต่ความสูงพลูมกับ σz
+   * ที่ใช้ปั้นรูปทรงแนวดิ่งเป็นของ**ชั่วโมงเดียว** จับคู่กันไม่ได้
+   *
+   * ถ้าฝืนวาด จะได้ภาพทาบพื้นเป็นพัดกว้างหลายแฉก ทับกับก้อนควันที่เป็นริ้วเดียว
+   * ชี้คนละทาง — คนดูอ่านแล้วสรุปผิดแน่นอน ยอมไม่แสดงแล้วบอกเหตุผลตรงๆ ดีกว่า
+   */
   function pushVolume(v) {
-    if (!volume || !v.result) return;
+    if (!volume || !v.result) return null;
+    if (v.view && v.view !== 'hour') {
+      volume.mesh.visible = false;
+      return 'มุมมองนี้รวมหลายชั่วโมงที่ลมพัดคนละทิศ จึงแสดงได้แค่ชั้นทาบพื้น — ' +
+             'กด “รายชั่วโมง” เพื่อดูก้อนควันสามมิติ';
+    }
     const r = v.result;
     const g = r.grids[v.hourIndex] || r.grids[0];
     const h = r.perHour[v.hourIndex];
@@ -82,6 +98,7 @@ export async function create3D(container, view) {
 
     volume.update({ grid: g, hour: h, opts: v.opts, bg: v.bg, sunDir: sd,
                     step: Math.max(1, Math.round(r.N / 160)) });
+    return null;
   }
 
   function pushOverlays(v) {
@@ -115,8 +132,9 @@ export async function create3D(container, view) {
       stage.setHour(next.hourKey);
       if (terrain && next.opts.exag !== cur.opts.exag) terrain.setExaggeration(next.opts.exag);
       cur = next;
-      pushVolume(next);
+      const note = pushVolume(next);
       pushOverlays(next);
+      return note;                      // ผู้เรียกเอาไปแสดง ไม่ให้โมดูลนี้ยุ่งกับ DOM ของแอป
     },
     resize: () => stage.resize(),
     /**
