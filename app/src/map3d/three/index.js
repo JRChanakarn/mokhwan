@@ -13,6 +13,7 @@ import * as THREE from 'three';
 import { createScene } from './scene.js';
 import { buildTerrain } from './terrain.js';
 import { loadImageryMosaic } from './basemap.js';
+import { createVolume } from './volume-mesh.js';
 
 const M_LAT = 111320;
 const mLon = lat => 111320 * Math.cos(lat * Math.PI / 180);
@@ -22,7 +23,7 @@ export async function create3D(container, view) {
   const spanM = result ? 2 * result.R : 20000;
   const stage = createScene(container, { origin, hourKey: view.hourKey, spanM });
 
-  let terrain = null;
+  let terrain = null, volume = null;
   const notes = [];
 
   if (result) {
@@ -32,6 +33,13 @@ export async function create3D(container, view) {
     stage.camera.position.set(result.cx, result.cy - spanM * 0.9, spanM * 0.28);
 
     if (!view.elev) notes.push('ไม่มีข้อมูลความสูงภูมิประเทศ — แสดงเป็นพื้นราบ');
+
+    volume = createVolume({ res: result, elevTexture: terrain.elevTexture,
+                           elevMin: terrain.elevMin, elevMax: terrain.elevMax, bands: view.bands });
+    stage.add(volume.mesh);
+    // shader ทำงานในระบบพิกัดกล่อง จึงต้องบอกตำแหน่งกล้องใหม่ทุกเฟรม ไม่ใช่ตอน update
+    stage.onFrame(() => volume.syncCamera(stage.camera));
+    pushVolume(view);
 
     // โมเสกครอบ 1.4R เท่ากับที่ dem.js ใช้ เพราะ (cx,cy) เลื่อนตามลมได้ถึง 0.32R
     const mos = await loadImageryMosaic(origin, result.R * 1.4);
@@ -49,10 +57,24 @@ export async function create3D(container, view) {
     notes.push('ยังไม่มีผลการคำนวณ — กดคำนวณก่อนจึงจะเห็นภูมิประเทศและควัน');
   }
 
-  stage.onQualityDrop(() => {
+  /* ย่อให้ได้ราว 160 บล็อกต่อด้านไม่ว่ากริดจะละเอียดแค่ไหน ขนาด texture จึงไม่ผูกกับ
+     ความละเอียดที่ผู้ใช้เลือก และ VRAM ไม่บวมตาม · ลองที่ 96 แล้วเห็นขอบเป็นบันไดชัด
+     เพราะบล็อกกว้างราว 230 ม. — กล่องถูกย่อให้พอดีพลูมอยู่แล้ว จึงจ่ายไหว */
+  function pushVolume(v) {
+    if (!volume || !v.result) return;
+    const r = v.result;
+    const g = r.grids[v.hourIndex] || r.grids[0];
+    const h = r.perHour[v.hourIndex];
+    volume.update({ grid: g, hour: h, opts: v.opts, bg: v.bg, step: Math.max(1, Math.round(r.N / 160)) });
+  }
+
+  stage.onQualityDrop(q => {
+    if (volume) volume.setSteps(q.steps);
     notes.push('เครื่องวาดไม่ทัน จึงลดความละเอียดลงเอง — กด "แบบเดิม" ถ้ายังหืด');
   });
 
+  // ช่องทางตรวจสอบด้วยตาเวลาพัฒนา — vite ตัดทิ้งตอน build จึงไม่ติดไปกับของจริง
+  if (import.meta.env && import.meta.env.DEV) window.__stage3d = stage;
   stage.start();
   let cur = view;
 
@@ -62,6 +84,7 @@ export async function create3D(container, view) {
       stage.setHour(next.hourKey);
       if (terrain && next.opts.exag !== cur.opts.exag) terrain.setExaggeration(next.opts.exag);
       cur = next;
+      pushVolume(next);
     },
     resize: () => stage.resize(),
     fitBounds() {
@@ -72,6 +95,7 @@ export async function create3D(container, view) {
     },
     dispose() {
       stage.stop();
+      if (volume) volume.dispose();
       if (terrain) terrain.dispose();
       stage.dispose();
     },

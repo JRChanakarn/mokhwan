@@ -30,8 +30,38 @@ export const RATIO_MAX = 1e4;
 
 export function buildField({ grid, res, hour, step = 4, Nz = 48, pexag = 1 }) {
   const { N, cell, cx, cy, R } = res;
-  const { data: flatGrid, M: Nx } = downsampleMax(grid, N, step);
-  const Ny = Nx, bcell = cell * step;
+  const { data: flatGrid, M } = downsampleMax(grid, N, step);
+  const bcell = cell * step;
+
+  /**
+   * **ย่อกล่องให้พอดีควันจริง ไม่คลุมทั้งโดเมน** — เรื่องประสิทธิภาพล้วนๆ แต่จำเป็น
+   *
+   * ครั้งแรกที่ลองจริง กล่องคลุมเต็ม 2R ทุกพิกเซลที่มองทะลุกล่องจึงต้องเดินรังสีเต็มความลึก
+   * แม้บริเวณนั้นไม่มีควันเลยสักหยด รวมกับจอ retina แล้ว **เบราว์เซอร์ค้างตั้งแต่เฟรมแรก**
+   * จนตัวลดคุณภาพอัตโนมัติไม่ทันได้ทำงาน
+   *
+   * พลูมกินพื้นที่เพียงเสี้ยวเดียวของกริด การย่อกล่องจึงลดงานลงหลายเท่า
+   * และยังได้ความละเอียดของ texture ต่อเมตรสูงขึ้นฟรีๆ ด้วย
+   */
+  let bi0 = M, bi1 = -1, bj0 = M, bj1 = -1;
+  for (let j = 0; j < M; j++) {
+    for (let i = 0; i < M; i++) {
+      if (flatGrid[j * M + i] > 0) {
+        if (i < bi0) bi0 = i;
+        if (i > bi1) bi1 = i;
+        if (j < bj0) bj0 = j;
+        if (j > bj1) bj1 = j;
+      }
+    }
+  }
+  if (bi1 < 0) {
+    return { data: new Float32Array(0), Nx: 0, Ny: 0, Nz, zTop: 0, dz: 0,
+             aglZ0: 0, aglH: 0, bi0: 0, bj0: 0, boxX: cx, boxY: cy, boxW: 0, boxD: 0, vmax: 0 };
+  }
+  // เผื่อขอบหนึ่งบล็อกทุกด้าน ให้ LinearFilter มีค่าข้างเคียงให้ไล่จางแทนที่จะตัดขาด
+  bi0 = Math.max(0, bi0 - 1); bi1 = Math.min(M - 1, bi1 + 1);
+  bj0 = Math.max(0, bj0 - 1); bj1 = Math.min(M - 1, bj1 + 1);
+  const Nx = bi1 - bi0 + 1, Ny = bj1 - bj0 + 1;
 
   // ความสูงพลูม: เฟสคุกรุ่นเป็นตัวกำหนดค่าที่พื้น ถ้าไม่มีจึงใช้เฟสเปลวไฟ (เหมือน volume.js)
   const H0 = (hour.qSm > 0 ? hour.Hsm : hour.Hfl) || 0;
@@ -57,19 +87,31 @@ export function buildField({ grid, res, hour, step = 4, Nz = 48, pexag = 1 }) {
    * กล่องล้ำใต้ดินครึ่งช่องไม่เป็นไร เพราะ shader ตัดรังสีที่ผิวดินอยู่แล้ว
    */
   const dz = Nz > 1 ? zTop / (Nz - 1) : Math.max(zTop, 1);
-  const boxZ0 = -dz / 2, boxH = dz * Nz;
+
+  /**
+   * **ชื่อ agl ไม่ใช่ box โดยตั้งใจ — ทั้งสองค่านี้เป็นความสูง "เหนือพื้นดิน"**
+   *
+   * รอบแรกตั้งชื่อว่า boxZ0/boxH แล้วเอาไปวางกล่องในฉากตรงๆ ผลคือกล่องควันฝังอยู่
+   * ใต้ภูเขาทั้งก้อน (ควันสูง 0–865 ม. แต่ภูเขาสูง 450–2550 ม. เหนือระดับน้ำทะเล)
+   * รังสีชนดินตั้งแต่ก้าวแรกทุกพิกเซล จอจึงว่างเปล่าโดยไม่มี error ให้จับ
+   *
+   * MapLibre บวกความสูงพื้นให้เองใน shader ของ fill-extrusion — ข้อนี้เขียนเตือนไว้
+   * ตัวโตๆ ในหัวไฟล์ volume.js แล้ว แต่ three.js **ไม่บวกให้** ผู้เรียกต้องบวกเอง
+   */
+  const aglZ0 = -dz / 2, aglH = dz * Nz;
 
   const out = new Float32Array(Nx * Ny * Nz);
   let vmax = 0;
 
   for (let bj = 0; bj < Ny; bj++) {
     for (let bi = 0; bi < Nx; bi++) {
-      const c0 = flatGrid[bj * Nx + bi];
+      const gi = bi0 + bi, gj = bj0 + bj;              // ดัชนีในกริดเต็ม
+      const c0 = flatGrid[gj * M + gi];
       if (!(c0 > 0)) continue;                 // คอลัมน์ว่างข้ามไป (ดูข้อจำกัดข้อ 6 ข้างบน)
 
       // ศูนย์กลางบล็อกในพิกัดเอนจิน — กองไฟอยู่ที่ (0,0) ศูนย์กลางกริดเลื่อนไปท้ายลมที่ (cx,cy)
-      const xm = cx - R + (bi + 0.5) * bcell;
-      const ym = cy + R - (bj + 0.5) * bcell;
+      const xm = cx - R + (gi + 0.5) * bcell;
+      const ym = cy + R - (gj + 0.5) * bcell;
       const d = Math.hypot(xm, ym);
 
       const sz = Math.min(sigmas(Math.max(d, 12), hour.stab)[1], lid0 / 1.25) * pexag;
@@ -88,7 +130,12 @@ export function buildField({ grid, res, hour, step = 4, Nz = 48, pexag = 1 }) {
       }
     }
   }
-  return { data: out, Nx, Ny, Nz, zTop, dz, boxZ0, boxH, vmax };
+  const boxW = Nx * bcell, boxD = Ny * bcell;
+  return {
+    data: out, Nx, Ny, Nz, zTop, dz, aglZ0, aglH, vmax, bi0, bj0, boxW, boxD,
+    boxX: cx - R + (bi0 + Nx / 2) * bcell,        // ศูนย์กลางกล่องในพิกัดเอนจิน
+    boxY: cy + R - (bj0 + Ny / 2) * bcell,
+  };
 }
 
 /* ---------------- LUT สี ---------------- */

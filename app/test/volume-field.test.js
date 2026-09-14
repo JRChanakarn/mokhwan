@@ -14,26 +14,55 @@ describe('ชั้นพื้นต้องเท่ากริดอิน�
     for (let j = 0; j < f.Ny; j++) for (let i = 0; i < f.Nx; i++)
       expect(at(f, i, j, 0)).toBeCloseTo(50, 5);
   });
-  it('กริดไม่สม่ำเสมอก็ยังตรง', () => {
+  it('กริดไม่สม่ำเสมอก็ยังตรง (ชดเชยจุดเริ่มของกล่องที่ย่อแล้ว)', () => {
     const g = new Float32Array(N * N);
     g[5 * N + 7] = 123.5;
     const f = buildField({ grid: g, res, hour, step: 1, Nz: 32 });
-    expect(at(f, 7, 5, 0)).toBeCloseTo(123.5, 4);
-    expect(at(f, 0, 0, 0)).toBe(0);
+    expect(at(f, 7 - f.bi0, 5 - f.bj0, 0)).toBeCloseTo(123.5, 4);
+    expect(at(f, 0, 0, 0)).toBe(0);          // มุมกล่องคือขอบเผื่อ ต้องว่าง
+  });
+});
+
+describe('กล่องย่อให้พอดีควัน — ไม่งั้น raymarch คลุมทั้งโดเมนจนเบราว์เซอร์ค้าง', () => {
+  it('จุดเข้มจุดเดียวได้กล่องเล็ก ไม่ใช่เต็มกริด', () => {
+    const g = new Float32Array(N * N);
+    g[8 * N + 8] = 200;
+    const f = buildField({ grid: g, res, hour, step: 1, Nz: 16 });
+    expect(f.Nx).toBe(3);                    // จุดเดียว + ขอบเผื่อข้างละบล็อก
+    expect(f.Ny).toBe(3);
+    expect(f.boxW).toBeCloseTo(3 * cell, 6);
+  });
+  it('กริดเต็มได้กล่องเต็มโดเมน', () => {
+    const f = buildField({ grid: flat(50), res, hour, step: 1, Nz: 16 });
+    expect(f.Nx).toBe(N);
+    expect(f.boxW).toBeCloseTo(2 * R, 6);
+  });
+  it('กล่องอยู่กึ่งกลางของบล็อกที่มันครอบจริง', () => {
+    const g = new Float32Array(N * N);
+    g[8 * N + 8] = 200;
+    const f = buildField({ grid: g, res, hour, step: 1, Nz: 16 });
+    // บล็อก 8 ศูนย์กลางอยู่ที่ cx - R + 8.5·cell — กล่อง 3 บล็อกจึงมีศูนย์กลางที่เดียวกัน
+    expect(f.boxX).toBeCloseTo(res.cx - R + 8.5 * cell, 6);
+    expect(f.boxY).toBeCloseTo(res.cy + R - 8.5 * cell, 6);
+  });
+  it('กริดว่างเปล่าคืนกล่องเปล่า ไม่พัง', () => {
+    const f = buildField({ grid: new Float32Array(N * N), res, hour, step: 1, Nz: 16 });
+    expect(f.vmax).toBe(0);
+    expect(f.data.length).toBe(0);
   });
 });
 
 describe('เรขาคณิตของกล่องต้องตรงกับที่ shader สุ่ม — เคยพลาดมาแล้วครึ่งเท็กเซล', () => {
-  it('ศูนย์กลางเท็กเซล k ตกที่ z = k·dz พอดี เมื่อกล่องเริ่มที่ boxZ0 สูง boxH', () => {
+  it('ศูนย์กลางเท็กเซล k ตกที่ z = k·dz พอดี เมื่อสนามเริ่มที่ aglZ0 สูง aglH', () => {
     const f = buildField({ grid: flat(50), res, hour, step: 1, Nz: 32 });
     for (const k of [0, 1, 7, 31]) {
-      const zTexel = f.boxZ0 + (k + 0.5) / f.Nz * f.boxH;   // สิ่งที่ LinearFilter จะสุ่มได้
+      const zTexel = f.aglZ0 + (k + 0.5) / f.Nz * f.aglH;   // สิ่งที่ LinearFilter จะสุ่มได้
       expect(zTexel).toBeCloseTo(k * f.dz, 6);
     }
   });
   it('ชั้นล่างสุดอยู่ที่ระดับพื้นจริง ไม่ลอยเหนือพื้น', () => {
     const f = buildField({ grid: flat(50), res, hour, step: 1, Nz: 32 });
-    expect(f.boxZ0 + 0.5 / f.Nz * f.boxH).toBeCloseTo(0, 9);
+    expect(f.aglZ0 + 0.5 / f.Nz * f.aglH).toBeCloseTo(0, 9);
   });
   it('ชั้นบนสุดอยู่ที่ zTop พอดี', () => {
     const f = buildField({ grid: flat(50), res, hour, step: 1, Nz: 32 });
@@ -99,8 +128,8 @@ describe('ย่อขนาดใช้ค่าสูงสุด ไม่ใ
     const g = new Float32Array(N * N);
     g[4 * N + 4] = 900;
     const f = buildField({ grid: g, res, hour, step: 4, Nz: 32 });
-    expect(f.Nx).toBe(4);
-    expect(at(f, 1, 1, 0)).toBeCloseTo(900, 3);
+    expect(f.Nx).toBe(3);                    // บล็อก (1,1) + ขอบเผื่อ = 3 บล็อก
+    expect(at(f, 1 - f.bi0, 1 - f.bj0, 0)).toBeCloseTo(900, 3);
   });
 });
 

@@ -42,8 +42,12 @@ export function buildTerrain({ elev, res, exag = 1, texture = null }) {
   elevTexture.wrapS = elevTexture.wrapT = THREE.ClampToEdgeWrapping;
   elevTexture.needsUpdate = true;
 
+  let lo = Infinity, hi = -Infinity;
+  for (let k = 0; k < N * N; k++) { const v = raw[k]; if (v < lo) lo = v; if (v > hi) hi = v; }
+  if (!isFinite(lo)) { lo = 0; hi = 0; }
+
   return {
-    mesh, elevTexture, raw,
+    mesh, elevTexture, raw, elevMin: lo, elevMax: hi,
     setExaggeration(v) {
       for (let k = 0; k < N * N; k++) pos.setZ(k, raw[k] * v);
       pos.needsUpdate = true;
