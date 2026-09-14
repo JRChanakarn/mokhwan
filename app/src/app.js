@@ -1319,8 +1319,31 @@ function view3(){
     toXY: ll => o ? toXY(ll, o) : null,
     opts: { exag:+$('exag').value, pexag:+$('pexag').value,
             smokeOpacity:+$('smokeopa').value, showGroundLayer:$('showGroundLayer').checked },
-    plots: S.plots.filter(p => p.on !== false), receptors: S.receptors, groundRaster: S.lastRaster,
+    /* แปลงเป็นพิกัดเอนจินและสีสำเร็จตั้งแต่ตรงนี้ ฝั่ง three จะได้ไม่ต้องรู้จัก Leaflet
+       และไม่มีโอกาสคิดสีของตัวรับไม่ตรงกับแผนที่ 2D */
+    plots: o ? S.plots.filter(p => p.on !== false).map(p => ({ ring: plotRing(p, o) })) : [],
+    receptors: o ? S.receptors.map((rc, i) => {
+      const xy = toXY(rc.ll, o);
+      const v = r ? recValue(i) + curBg() : null;
+      return { x: xy[0], y: xy[1], color: v === null ? '#6b7c92' : recColor(v), name: rc.name };
+    }) : [],
+    groundRaster: S.lastRaster,
   };
+}
+
+/* วงรอบของแปลงในพิกัดเอนจิน — กติกาเดียวกับ plotsGeo() ที่ MapLibre ใช้
+   จุดเดี่ยวคือวงกลมพื้นที่เท่ากับไร่ที่ระบุ ส่วนแปลงที่วาดเองใช้จุดยอดตามที่วาด */
+function plotRing(p, o){
+  if(p.type === 'point'){
+    const rad = Math.sqrt(p.rai * RAI / Math.PI), ring = [];
+    const c = toXY(p.latlng, o);
+    for(let k = 0; k <= 24; k++){
+      const t = k / 24 * 2 * Math.PI;
+      ring.push([c[0] + rad * Math.cos(t), c[1] + rad * Math.sin(t)]);
+    }
+    return ring;
+  }
+  return p.latlngs.map(ll => toXY(ll, o));
 }
 
 async function initThree3D(){

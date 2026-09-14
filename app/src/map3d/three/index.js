@@ -14,6 +14,7 @@ import { createScene } from './scene.js';
 import { buildTerrain } from './terrain.js';
 import { loadImageryMosaic } from './basemap.js';
 import { createVolume } from './volume-mesh.js';
+import { createMarkers, createGroundImage } from './markers.js';
 
 const M_LAT = 111320;
 const mLon = lat => 111320 * Math.cos(lat * Math.PI / 180);
@@ -23,7 +24,7 @@ export async function create3D(container, view) {
   const spanM = result ? 2 * result.R : 20000;
   const stage = createScene(container, { origin, hourKey: view.hourKey, spanM });
 
-  let terrain = null, volume = null;
+  let terrain = null, volume = null, markers = null, ground = null;
   const notes = [];
 
   if (result) {
@@ -34,12 +35,20 @@ export async function create3D(container, view) {
 
     if (!view.elev) notes.push('ไม่มีข้อมูลความสูงภูมิประเทศ — แสดงเป็นพื้นราบ');
 
+    markers = createMarkers({ res: result });
+    markers.setTerrain(terrain.raw, view.opts.exag);
+    stage.add(markers.group);
+
+    ground = createGroundImage({ res: result });
+    stage.add(ground.mesh);
+
     volume = createVolume({ res: result, elevTexture: terrain.elevTexture,
                            elevMin: terrain.elevMin, elevMax: terrain.elevMax, bands: view.bands });
     stage.add(volume.mesh);
     // shader ทำงานในระบบพิกัดกล่อง จึงต้องบอกตำแหน่งกล้องใหม่ทุกเฟรม ไม่ใช่ตอน update
     stage.onFrame(() => volume.syncCamera(stage.camera));
     pushVolume(view);
+    pushOverlays(view);
 
     // โมเสกครอบ 1.4R เท่ากับที่ dem.js ใช้ เพราะ (cx,cy) เลื่อนตามลมได้ถึง 0.32R
     const mos = await loadImageryMosaic(origin, result.R * 1.4);
@@ -68,6 +77,21 @@ export async function create3D(container, view) {
     volume.update({ grid: g, hour: h, opts: v.opts, bg: v.bg, step: Math.max(1, Math.round(r.N / 160)) });
   }
 
+  function pushOverlays(v) {
+    if (!v.result) return;
+    if (markers) {
+      markers.setTerrain(terrain ? terrain.raw : null, v.opts.exag);
+      markers.update({ plots: v.plots, receptors: v.receptors });
+    }
+    if (ground) {
+      ground.update({
+        raster: v.groundRaster, opacity: Math.min(1, v.opts.smokeOpacity * 1.3),
+        visible: v.opts.showGroundLayer, raw: terrain ? terrain.raw : null,
+        exag: v.opts.exag, origin: v.origin, mLonV: mLon(v.origin.lat), mLatV: M_LAT,
+      });
+    }
+  }
+
   stage.onQualityDrop(q => {
     if (volume) volume.setSteps(q.steps);
     notes.push('เครื่องวาดไม่ทัน จึงลดความละเอียดลงเอง — กด "แบบเดิม" ถ้ายังหืด');
@@ -85,6 +109,7 @@ export async function create3D(container, view) {
       if (terrain && next.opts.exag !== cur.opts.exag) terrain.setExaggeration(next.opts.exag);
       cur = next;
       pushVolume(next);
+      pushOverlays(next);
     },
     resize: () => stage.resize(),
     fitBounds() {
@@ -96,6 +121,8 @@ export async function create3D(container, view) {
     dispose() {
       stage.stop();
       if (volume) volume.dispose();
+      if (markers) markers.dispose();
+      if (ground) ground.dispose();
       if (terrain) terrain.dispose();
       stage.dispose();
     },
