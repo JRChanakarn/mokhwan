@@ -15,6 +15,7 @@ import { buildTerrain } from './terrain.js';
 import { loadImageryMosaic } from './basemap.js';
 import { createVolume } from './volume-mesh.js';
 import { createMarkers, createGroundImage } from './markers.js';
+import { sunDirection, isDaylight } from '../sky-palette.js';
 
 const M_LAT = 111320;
 const mLon = lat => 111320 * Math.cos(lat * Math.PI / 180);
@@ -74,7 +75,13 @@ export async function create3D(container, view) {
     const r = v.result;
     const g = r.grids[v.hourIndex] || r.grids[0];
     const h = r.perHour[v.hourIndex];
-    volume.update({ grid: g, hour: h, opts: v.opts, bg: v.bg, step: Math.max(1, Math.round(r.N / 160)) });
+    /* ตอนกลางคืนดวงอาทิตย์อยู่ใต้ขอบฟ้า ถ้าส่งทิศนั้นไปตรงๆ ควันจะถูกส่องจากใต้ดิน
+       ยกขึ้นมาให้เฉียงลงเล็กน้อยแทน เหมือนที่ scene.js ทำกับแสงของภูมิประเทศ */
+    const sd = sunDirection(v.hourKey, v.origin.lat);
+    if (!isDaylight(v.hourKey)) sd.z = Math.max(sd.z, 0.25);
+
+    volume.update({ grid: g, hour: h, opts: v.opts, bg: v.bg, sunDir: sd,
+                    step: Math.max(1, Math.round(r.N / 160)) });
   }
 
   function pushOverlays(v) {

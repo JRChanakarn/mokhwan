@@ -8,18 +8,44 @@ const hour = { Hsm: 40, Hfl: 90, qSm: 5, qFl: 3, stab: 'D', mix: 800 };
 const flat = v => { const g = new Float32Array(N * N); g.fill(v); return g; };
 const at = (f, i, j, k) => f.data[k * f.Nx * f.Ny + j * f.Nx + i];
 
-describe('ชั้นพื้นต้องเท่ากริดอินพุตเป๊ะ — หัวใจของความซื่อสัตย์ทั้งหมด', () => {
-  it('ค่าที่ z=0 เท่ากับค่าที่เอนจินคำนวณ ไม่ใช่ใกล้เคียง', () => {
+const gnd = (f, i, j) => f.ground[j * f.Nx + i];
+
+describe('ค่าที่พื้นต้องเท่ากริดอินพุตเป๊ะ — หัวใจของความซื่อสัตย์ทั้งหมด', () => {
+  it('ground เท่ากับค่าที่เอนจินคำนวณ ไม่ใช่ใกล้เคียง', () => {
     const f = buildField({ grid: flat(50), res, hour, step: 1, Nz: 32 });
     for (let j = 0; j < f.Ny; j++) for (let i = 0; i < f.Nx; i++)
-      expect(at(f, i, j, 0)).toBeCloseTo(50, 5);
+      expect(gnd(f, i, j)).toBeCloseTo(50, 5);
   });
   it('กริดไม่สม่ำเสมอก็ยังตรง (ชดเชยจุดเริ่มของกล่องที่ย่อแล้ว)', () => {
     const g = new Float32Array(N * N);
     g[5 * N + 7] = 123.5;
     const f = buildField({ grid: g, res, hour, step: 1, Nz: 32 });
-    expect(at(f, 7 - f.bi0, 5 - f.bj0, 0)).toBeCloseTo(123.5, 4);
-    expect(at(f, 0, 0, 0)).toBe(0);          // มุมกล่องคือขอบเผื่อ ต้องว่าง
+    expect(gnd(f, 7 - f.bi0, 5 - f.bj0)).toBeCloseTo(123.5, 4);
+    expect(gnd(f, 0, 0)).toBe(0);            // มุมกล่องคือขอบเผื่อ ต้องว่าง
+  });
+  it('gmax เท่ากับค่าสูงสุดของกริด ไม่ใช่ค่าที่ถูกขยาย', () => {
+    const g = new Float32Array(N * N);
+    g[5 * N + 7] = 123.5; g[6 * N + 7] = 40;
+    const f = buildField({ grid: g, res, hour, step: 1, Nz: 32 });
+    expect(f.gmax).toBeCloseTo(123.5, 4);
+  });
+});
+
+/* กฎข้อนี้เกิดจากบั๊กจริงที่เจอตอนดูภาพ: ค่าที่พื้นสูงสุด 159 µg/m³ แต่สนาม 3 มิติ
+   พุ่งถึง 8,185 เพราะหาร vert(0) ตอน σz แคบใกล้แหล่งกำเนิด คอลัมน์ที่พื้นอยู่แถบส้ม
+   จึงถูกวาดเป็นสีม่วง "อันตรายมาก" ซึ่งผิดกฎในสเปกว่าสีต้องตรงกับแผนที่ 2D */
+describe('ความหนาแน่นต้องไม่พุ่งเกินค่าที่พื้น ไม่ว่าพลูมจะลอยสูงแค่ไหน', () => {
+  it('vmax ไม่เกิน gmax', () => {
+    for (const h of [hour, { ...hour, Hsm: 300, stab: 'F' }, { ...hour, Hsm: 900, mix: 1200, stab: 'F' }]) {
+      const f = buildField({ grid: flat(50), res, hour: h, step: 1, Nz: 48 });
+      expect(f.vmax).toBeLessThanOrEqual(f.gmax * 1.0001);
+    }
+  });
+  it('ทุกค่าในสนามไม่เกินค่าที่พื้นของคอลัมน์ตัวเอง', () => {
+    const f = buildField({ grid: flat(50), res, hour: { ...hour, Hsm: 400, stab: 'F' }, step: 1, Nz: 48 });
+    for (let j = 0; j < f.Ny; j++) for (let i = 0; i < f.Nx; i++)
+      for (let k = 0; k < f.Nz; k++)
+        expect(at(f, i, j, k)).toBeLessThanOrEqual(gnd(f, i, j) * 1.0001);
   });
 });
 
@@ -111,10 +137,11 @@ describe('σz โตตามระยะ — ใช้ฟังก์ชัน�
 });
 
 describe('pexag ยกเพื่อมองเห็น ห้ามกระทบตัวเลขที่พื้น', () => {
-  it('ค่าที่ z=0 เท่าเดิมทุกค่า pexag', () => {
+  it('ค่าที่พื้นเท่าเดิมทุกค่า pexag', () => {
     const a = buildField({ grid: flat(50), res, hour, step: 1, Nz: 32, pexag: 1 });
     const b = buildField({ grid: flat(50), res, hour, step: 1, Nz: 32, pexag: 4 });
-    expect(at(b, 8, 8, 0)).toBeCloseTo(at(a, 8, 8, 0), 5);
+    expect(b.ground[8 * b.Nx + 8]).toBeCloseTo(a.ground[8 * a.Nx + 8], 5);
+    expect(b.gmax).toBeCloseTo(a.gmax, 5);
   });
   it('ยกแล้วก้อนสูงขึ้นจริง', () => {
     const a = buildField({ grid: flat(50), res, hour, step: 1, Nz: 32, pexag: 1 });
@@ -129,7 +156,7 @@ describe('ย่อขนาดใช้ค่าสูงสุด ไม่ใ
     g[4 * N + 4] = 900;
     const f = buildField({ grid: g, res, hour, step: 4, Nz: 32 });
     expect(f.Nx).toBe(3);                    // บล็อก (1,1) + ขอบเผื่อ = 3 บล็อก
-    expect(at(f, 1 - f.bi0, 1 - f.bj0, 0)).toBeCloseTo(900, 3);
+    expect(f.ground[(1 - f.bj0) * f.Nx + (1 - f.bi0)]).toBeCloseTo(900, 3);
   });
 });
 
@@ -155,8 +182,8 @@ describe('LUT สี', () => {
   });
 });
 
-describe('เพดานอัตราส่วนกันค่าระเบิด', () => {
-  it('พลูมลอยสูงมากยังไม่ให้ค่าอนันต์', () => {
+describe('พลูมลอยสูงมากต้องไม่ให้ค่าอนันต์หรือค่าที่ขยายเกินจริง', () => {
+  it('ค่าสูงสุดยังผูกกับค่าที่พื้น ไม่ใช่ค่าที่ถูกขยาย', () => {
     const f = buildField({ grid: flat(1e-6), res, hour: { ...hour, Hsm: 900, mix: 1000, stab: 'F' },
                            step: 1, Nz: 32 });
     expect(f.vmax).toBeLessThanOrEqual(1e-6 * RATIO_MAX * 1.001);

@@ -36,6 +36,8 @@ export function createVolume({ res, elevTexture, elevMin = 0, elevMax = 0, bands
     uBoxSize:   { value: new THREE.Vector3(2 * R, 2 * R, 1) },
     uCamLocal:  { value: new THREE.Vector3() },
     uField:     { value: null },
+    uGround:    { value: null },
+    uGmax:      { value: 1 },
     uElev:      { value: elevTexture },
     uLut:       { value: lut },
     uVmax:      { value: 1 },
@@ -49,6 +51,10 @@ export function createVolume({ res, elevTexture, elevMin = 0, elevMax = 0, bands
     uLutLo:     { value: LUT_LO },
     uBg:        { value: 0 },
     uCMin:      { value: 1 },     // µg/m³ ตรงกับ minC ของ volume.js
+    uSunDir:    { value: new THREE.Vector3(0, 0, 1) },
+    uAmbient:   { value: 0.34 },  // ในเงายังเห็นเฉดสีของแถบ ไม่ดำจนอ่านค่าไม่ได้
+    uAlphaCap:  { value: 0.92 },
+    uKLight:    { value: 2.2e-5 },
     uLutHi:     { value: LUT_HI },
     uSteps:     { value: 64 },   // ต้องตรงกับค่าตั้งต้นใน scene.js
   };
@@ -68,7 +74,7 @@ export function createVolume({ res, elevTexture, elevMin = 0, elevMax = 0, bands
 
   return {
     mesh,
-    update({ grid, hour, opts, step, bg = 0 }) {
+    update({ grid, hour, opts, step, bg = 0, sunDir = null }) {
       if (!grid || !hour) { mesh.visible = false; return; }
       const f = buildField({ grid, res, hour, step, Nz: 48, pexag: opts.pexag });
       if (!(f.vmax > 0)) { mesh.visible = false; return; }
@@ -84,6 +90,18 @@ export function createVolume({ res, elevTexture, elevMin = 0, elevMax = 0, bands
       tex.wrapS = tex.wrapT = tex.wrapR = THREE.ClampToEdgeWrapping;
       tex.needsUpdate = true;
       uniforms.uField.value = tex;
+
+      // แผนที่ค่าที่พื้นสำหรับเลือกสี — ความละเอียดเท่าแนวราบของสนาม 3 มิติพอดี
+      if (uniforms.uGround.value) uniforms.uGround.value.dispose();
+      const gnorm = new Uint16Array(f.ground.length);
+      const gs = f.gmax > 0 ? 1 / f.gmax : 0;
+      for (let i = 0; i < f.ground.length; i++) gnorm[i] = toHalf(f.ground[i] * gs);
+      const gtex = new THREE.DataTexture(gnorm, f.Nx, f.Ny, THREE.RedFormat, THREE.HalfFloatType);
+      gtex.minFilter = gtex.magFilter = THREE.LinearFilter;
+      gtex.wrapS = gtex.wrapT = THREE.ClampToEdgeWrapping;
+      gtex.needsUpdate = true;
+      uniforms.uGround.value = gtex;
+      uniforms.uGmax.value = f.gmax;
 
       /* **กล่องต้องคร่อมทั้งช่วงความสูงของภูเขาบวกความหนาของควัน**
          เพราะควันเลาะไปตามผิวดินซึ่งสูงต่ำไม่เท่ากันทั้งโดเมน กล่องที่สูงแค่ความหนาควัน
@@ -104,6 +122,9 @@ export function createVolume({ res, elevTexture, elevMin = 0, elevMax = 0, bands
         (f.boxX - f.boxW / 2 - (cx - R)) / (2 * R),
         (f.boxY - f.boxD / 2 - (cy - R)) / (2 * R));
       uniforms.uBg.value = bg;
+      /* กล่องไม่ถูกหมุนและไม่ถูกสเกล ทิศในพิกัดโลกกับพิกัดกล่องจึงเป็นตัวเดียวกัน
+         ถ้าวันหลังมีใครหมุนกล่อง ต้องแปลงทิศด้วย ไม่งั้นเงาจะชี้ผิดทางแบบเงียบๆ */
+      if (sunDir) uniforms.uSunDir.value.set(sunDir.x, sunDir.y, sunDir.z).normalize();
       /* ความทึบ: ตั้งให้ควัน 50 µg/m³ หนา 500 ม. ได้ราว 30% และแกนกลางหลักร้อยทึบเกือบเต็ม
          ค่าเดิมสูงกว่านี้ร้อยเท่า ทุกอย่างจึงทึบตันหมดจนดูเป็นก้อนพลาสติก ไม่ใช่ควัน */
       uniforms.uK.value = (0.4 + opts.smokeOpacity * 2.0) * 1e-5;
@@ -143,6 +164,7 @@ export function createVolume({ res, elevTexture, elevMin = 0, elevMax = 0, bands
     },
     dispose() {
       if (uniforms.uField.value) uniforms.uField.value.dispose();
+      if (uniforms.uGround.value) uniforms.uGround.value.dispose();
       lut.dispose(); mat.dispose(); mesh.geometry.dispose();
     },
   };

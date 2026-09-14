@@ -29,7 +29,9 @@ out vec4 fragColor;
 
 uniform vec3  uBoxSize;      // (2R, 2R, boxH)
 uniform vec3  uCamLocal;     // ตำแหน่งกล้องในระบบพิกัดกล่อง
-uniform sampler3D uField;
+uniform sampler3D uField;    // ความหนาแน่นสำหรับคุมความทึบ
+uniform sampler2D uGround;   // ค่าที่พื้นของคอลัมน์ สำหรับเลือก**สี** (ดู volume-field.js)
+uniform float     uGmax;
 uniform sampler2D uElev;
 uniform sampler2D uLut;
 uniform float uVmax;         // ค่าสูงสุดของสนาม ใช้ถอดค่ากลับจาก texture ที่ normalize แล้ว
@@ -44,6 +46,10 @@ uniform float uLutLo;        // ขอบล่างของแถบแรก
 uniform float uLutHi;
 uniform float uBg;           // ค่าพื้นหลัง ใช้ตอน**ลงสี**เท่านั้น ไม่ใช่ตอนกรอง
 uniform float uCMin;         // ค่าควันต่ำสุดที่ยังวาด — ตรงกับ minC ของ volume.js
+uniform vec3  uSunDir;       // ทิศ**ไปหา**ดวงอาทิตย์ หน่วยเดียว (กล่องไม่หมุนไม่สเกล จึงใช้พิกัดโลกได้เลย)
+uniform float uAmbient;      // แสงพื้นฐานตอนอยู่ในเงา กัน 0 = ดำสนิท
+uniform float uAlphaCap;     // เพดานความทึบ ให้ยังมองทะลุแกนเห็นโครงสร้างได้
+uniform float uKLight;       // สัมประสิทธิ์การบังแสง — แยกจาก uK เพื่อจูนความคมของเงาได้อิสระ
 uniform int   uSteps;
 
 /* สุ่มจากพิกัดจอ — จุดเริ่มรังสีที่ไม่สุ่มจะทำให้เห็นวงแหวนซ้อนเป็นชั้นชัดมาก
@@ -56,6 +62,34 @@ vec2 boxRange(vec3 o, vec3 d, vec3 halfSize) {
   vec3 a = (-halfSize - o) * inv, b = (halfSize - o) * inv;
   vec3 lo = min(a, b), hi = max(a, b);
   return vec2(max(max(lo.x, lo.y), lo.z), min(min(hi.x, hi.y), hi.z));
+}
+
+/* สุ่มความเข้มข้นควัน (ไม่รวมพื้นหลัง) ที่จุดในระบบพิกัดกล่อง — คืน 0 ถ้าอยู่นอกก้อน */
+float sampleSmoke(vec3 p, vec3 halfSize, float ground) {
+  vec3 uvw = (p + halfSize) / uBoxSize;
+  if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0)))) return 0.0;
+  float agl = (uBoxZ0 + uvw.z * uBoxSize.z) - ground;
+  float wTex = (agl - uAglZ0) / uAglH;
+  if (wTex < 0.0 || wTex > 1.0) return 0.0;
+  return texture(uField, vec3(uvw.xy, wTex)).r * uVmax;
+}
+
+/**
+ * สัดส่วนแสงที่เหลือหลังทะลุควันมาถึงจุดนี้
+ *
+ * **นี่คือสิ่งเดียวที่ทำให้ควันดูเป็นควัน** ก่อนหน้านี้ raymarch สะสมแต่สี ไม่มีแสงเลย
+ * แกนที่เข้มข้นจึงออกมาเป็นแผ่นสีม่วงแบนเหมือนพลาสติก ควันจริงได้รูปทรงจากการที่
+ * ด้านรับแสงสว่างกว่าด้านใน เพราะแสงถูกควันชั้นนอกบังไว้
+ *
+ * ใช้ “ground” ของจุดตั้งต้นตลอดการเดิน ไม่สุ่มความสูงพื้นใหม่ทุกก้าว — ระยะเดินสั้น
+ * เมื่อเทียบกับความกว้างของภูมิประเทศ ความคลาดเคลื่อนมองไม่ออก แต่ประหยัดการสุ่มไปครึ่งหนึ่ง
+ */
+float lightTransmittance(vec3 p, vec3 halfSize, float ground, float stepLen) {
+  float tau = 0.0;
+  for (int j = 0; j < 4; j++) {
+    tau += sampleSmoke(p + uSunDir * (stepLen * (float(j) + 0.5)), halfSize, ground) * stepLen;
+  }
+  return exp(-uKLight * tau);
 }
 
 void main() {
@@ -101,16 +135,32 @@ void main() {
        ความทึบก็ต้องมาจากควันล้วน — หมอกพื้นหลังไม่ใช่ควันจากกองไฟนี้ */
     float craw = texture(uField, vec3(uvw.xy, wTex)).r * uVmax;
     if (craw > uCMin) {
-      float cs = craw + uBg;
-      float u = clamp(log(max(cs, uLutLo) / uLutLo) / log(uLutHi / uLutLo), 0.0, 1.0);
+      /* **สีมาจากค่าที่พื้นของคอลัมน์ ไม่ใช่ความหนาแน่นตรงจุดที่รังสีอยู่**
+         คนหายใจที่พื้น แถบสีจึงต้องบอกสิ่งที่คนตรงนั้นเจอจริง และต้องตรงกับแผนที่ 2D
+         ถ้าลงสีตามความหนาแน่นในอากาศ คอลัมน์ที่พื้นอยู่แถบส้มจะถูกวาดม่วงตอนมองผ่านแกน */
+      float cg = texture(uGround, uvw.xy).r * uGmax + uBg;
+      float u = clamp(log(max(cg, uLutLo) / uLutLo) / log(uLutHi / uLutLo), 0.0, 1.0);
       vec3 col = texture(uLut, vec2(u, 0.5)).rgb;
+
+      /* **เฉดสี (hue) ยังมาจากแถบ AQI เหมือนเดิม เปลี่ยนแค่ความสว่าง**
+         เจ้าของงานอนุมัติข้อแลกนี้แล้ว — ถ้าคุมความสว่างไว้คงที่ด้วย แกนควันจะกลับไป
+         แบนเหมือนเดิม เพราะทุกค่าที่เกิน 350 ได้สีม่วงเดียวกันหมด */
+      float shade = uAmbient + (1.0 - uAmbient)
+                  * lightTransmittance(p, halfSize, ground, uAglH * 0.35);
+
+      /* กระเจิงไปข้างหน้า — มองย้อนแสงแล้วควันสว่างวาบ เป็นลักษณะเด่นที่ตาจับได้ทันที
+         ว่าเป็นละอองลอย ไม่ใช่ของแข็ง */
+      float phase = 0.75 + 0.55 * pow(max(dot(rd, uSunDir), 0.0), 4.0);
+
       float a = 1.0 - exp(-uK * craw * dt);       // Beer-Lambert จากควันล้วน
-      acc.rgb += (1.0 - acc.a) * col * a;
+      acc.rgb += (1.0 - acc.a) * col * (shade * phase) * a;
       acc.a   += (1.0 - acc.a) * a;
     }
     t += dt;
   }
 
   if (acc.a <= 0.002) discard;
-  fragColor = vec4(acc.rgb / max(acc.a, 1e-4), acc.a);
+  /* เพดานความทึบ — ปล่อยให้ทึบ 100% แล้วแกนควันกลายเป็นสติกเกอร์แปะทับภูเขา
+     เหลือช่องให้เห็นพื้นหลังจางๆ ตาจึงอ่านว่าเป็นก้อนอากาศ ไม่ใช่วัตถุแข็ง */
+  fragColor = vec4(acc.rgb / max(acc.a, 1e-4), min(acc.a, uAlphaCap));
 }`;

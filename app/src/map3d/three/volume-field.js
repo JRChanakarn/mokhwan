@@ -11,8 +11,20 @@
  *   vert(z)      = exp(-(z-H)^2 / 2σz^2) + exp(-(z+H)^2 / 2σz^2)
  * เทอมหลังคือเงาสะท้อนที่พื้น ตัวเดียวกับใน `packages/engine/src/gaussian.ts`
  *
- * **ที่หาร vert(0) เพราะอยากให้ชั้น z=0 เท่ากับค่าที่เอนจินคำนวณเป๊ะ** ไม่ใช่ใกล้เคียง
- * นั่นคือสิ่งเดียวที่ทำให้พูดได้ว่า "ที่พื้นคือผลการคำนวณ เหนือพื้นคือการประมาณ"
+ * **แยกสองอย่างออกจากกันเด็ดขาด: "สี" กับ "ความทึบ"**
+ *
+ *   `ground[i][j]` = ค่าที่พื้นของคอลัมน์นั้น **เท่ากับกริดของเอนจินเป๊ะ** → ใช้เลือก**สี**
+ *   `data[i][j][k]` = C0 · vert(z)/max(vert) ∈ [0, C0]              → ใช้คุม**ความทึบ**
+ *
+ * รอบแรกทำเป็นสนามเดียวโดยหาร vert(0) เพื่อให้ชั้น z=0 เท่ากริดเป๊ะ ซึ่งถูกตามสูตร
+ * Gaussian จริง แต่**ใช้ไม่ได้ในทางปฏิบัติ**: ใกล้แหล่งกำเนิด σz แคบมาก อัตราส่วน
+ * vert(z)/vert(0) จึงพุ่งเป็นหลักสิบถึงหลักพัน วัดจริงได้ค่าที่พื้น 159 µg/m³
+ * แต่สนาม 3 มิติพุ่งถึง 8,185 µg/m³ — คอลัมน์ที่พื้นอยู่แถบส้มถูกวาดเป็นสีม่วง
+ * "อันตรายมาก" ซึ่ง**ผิดกฎในสเปกที่ว่าสีต้องตรงกับแผนที่ 2D** และทำให้คนอ่านสรุปผิด
+ * ว่าตรงนั้นอันตรายกว่าความจริง
+ *
+ * สีจึงต้องมาจากค่าที่พื้นเสมอ เพราะนั่นคือสิ่งที่คนหายใจจริง ส่วนรูปทรงแนวดิ่ง
+ * เหลือหน้าที่เดียวคือบอกว่า**ควันลอยอยู่ตรงไหน** ไม่ใช่บอกว่าเข้มข้นเท่าไร
  *
  * **ผลข้างเคียงที่ยอมรับแล้ว (ข้อจำกัดข้อ 6 ในสเปก)** ถ้าพลูมลอยสูงจนค่าที่พื้นเป็นศูนย์
  * ทั้งคอลัมน์จะเป็นศูนย์ คือ**มองไม่เห็นควันที่ลอยค้างอยู่ข้างบน** เกิดตอนอากาศเสถียรมาก
@@ -25,8 +37,11 @@
  */
 import { sigmas, downsampleMax } from '../volume.js';
 
-/** เพดานอัตราส่วน vert(z)/vert(0) — กันค่าระเบิดตอนพลูมลอยสูงจน vert(0) เข้าใกล้ศูนย์ */
-export const RATIO_MAX = 1e4;
+/**
+ * เพดานอัตราส่วนรูปทรงแนวดิ่ง — ตอนนี้ normalize ด้วยค่าสูงสุดของคอลัมน์อยู่แล้ว
+ * อัตราส่วนจึงไม่มีทางเกิน 1 · คงค่านี้ไว้เป็นตาข่ายกัน NaN หลุด ไม่ใช่ตัวคุมภาพ
+ */
+export const RATIO_MAX = 1;
 
 export function buildField({ grid, res, hour, step = 4, Nz = 48, pexag = 1 }) {
   const { N, cell, cx, cy, R } = res;
@@ -55,8 +70,9 @@ export function buildField({ grid, res, hour, step = 4, Nz = 48, pexag = 1 }) {
     }
   }
   if (bi1 < 0) {
-    return { data: new Float32Array(0), Nx: 0, Ny: 0, Nz, zTop: 0, dz: 0,
-             aglZ0: 0, aglH: 0, bi0: 0, bj0: 0, boxX: cx, boxY: cy, boxW: 0, boxD: 0, vmax: 0 };
+    return { data: new Float32Array(0), ground: new Float32Array(0), Nx: 0, Ny: 0, Nz,
+             zTop: 0, dz: 0, aglZ0: 0, aglH: 0, bi0: 0, bj0: 0,
+             boxX: cx, boxY: cy, boxW: 0, boxD: 0, vmax: 0, gmax: 0 };
   }
   // เผื่อขอบหนึ่งบล็อกทุกด้าน ให้ LinearFilter มีค่าข้างเคียงให้ไล่จางแทนที่จะตัดขาด
   bi0 = Math.max(0, bi0 - 1); bi1 = Math.min(M - 1, bi1 + 1);
@@ -101,7 +117,8 @@ export function buildField({ grid, res, hour, step = 4, Nz = 48, pexag = 1 }) {
   const aglZ0 = -dz / 2, aglH = dz * Nz;
 
   const out = new Float32Array(Nx * Ny * Nz);
-  let vmax = 0;
+  const ground = new Float32Array(Nx * Ny);
+  let vmax = 0, gmax = 0;
 
   for (let bj = 0; bj < Ny; bj++) {
     for (let bi = 0; bi < Nx; bi++) {
@@ -114,17 +131,26 @@ export function buildField({ grid, res, hour, step = 4, Nz = 48, pexag = 1 }) {
       const ym = cy + R - (gj + 0.5) * bcell;
       const d = Math.hypot(xm, ym);
 
+      ground[bj * Nx + bi] = c0;                 // ค่าที่พื้น — ใช้เลือกสี ตรงกับกริดเป๊ะ
+      if (c0 > gmax) gmax = c0;
+
       const sz = Math.min(sigmas(Math.max(d, 12), hour.stab)[1], lid0 / 1.25) * pexag;
       const inv2s2 = 1 / (2 * sz * sz);
-      const v0 = 2 * Math.exp(-H * H * inv2s2);        // vert(0): สองเทอมเท่ากันพอดีที่ z=0
-      const invV0 = v0 > 0 ? 1 / v0 : 0;
+
+      /* normalize ด้วยค่าสูงสุด**ของคอลัมน์** ไม่ใช่ค่าที่ z=0
+         ยอดของทรงอยู่ที่ z = H เสมอ (เทอมสะท้อนพื้นบวกเพิ่มแต่ไม่ย้ายยอด)
+         ค่าที่ได้จึงอยู่ใน [0, c0] ไม่มีทางพุ่งเกินค่าที่พื้น */
+      const zPeak = Math.min(Math.max(H, 0), zTop);
+      const pa = zPeak - H, pb = zPeak + H;
+      const vPeak = Math.exp(-pa * pa * inv2s2) + Math.exp(-pb * pb * inv2s2);
+      const invPeak = vPeak > 0 ? 1 / vPeak : 0;
 
       for (let k = 0; k < Nz; k++) {
         const z = k * dz;                            // ชั้น 0 อยู่ที่พื้นพอดี ดูหมายเหตุข้างบน
         const a = z - H, b = z + H;
         const vert = Math.exp(-a * a * inv2s2) + Math.exp(-b * b * inv2s2);
-        const ratio = Math.min(vert * invV0, RATIO_MAX);
-        const v = c0 * ratio;
+        const shape = Math.min(vert * invPeak, RATIO_MAX);
+        const v = c0 * shape;
         out[k * Nx * Ny + bj * Nx + bi] = v;
         if (v > vmax) vmax = v;
       }
@@ -132,7 +158,7 @@ export function buildField({ grid, res, hour, step = 4, Nz = 48, pexag = 1 }) {
   }
   const boxW = Nx * bcell, boxD = Ny * bcell;
   return {
-    data: out, Nx, Ny, Nz, zTop, dz, aglZ0, aglH, vmax, bi0, bj0, boxW, boxD,
+    data: out, ground, Nx, Ny, Nz, zTop, dz, aglZ0, aglH, vmax, gmax, bi0, bj0, boxW, boxD,
     boxX: cx - R + (bi0 + Nx / 2) * bcell,        // ศูนย์กลางกล่องในพิกัดเอนจิน
     boxY: cy + R - (bj0 + Ny / 2) * bcell,
   };
