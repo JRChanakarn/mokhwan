@@ -7,6 +7,7 @@ import EngineWorker from 'mokhwan-engine/worker?worker';
 import { loadDem } from './services/dem.js';
 import { showTerrain, clearTerrain } from './map2d/terrain.js';
 import { buildVolume } from './map3d/volume.js';
+import { skyFor } from './map3d/sky-palette.js';
 
 /* เวอร์ชันของแอป — แหล่งเดียว ใช้ทั้งป้ายบนหัวและบันทึกการรัน
    หน่วยงานที่เอาผลไปใช้ตัดสินใจต้องย้อนตรวจได้ว่าวันนั้นรันด้วยอะไร */
@@ -1159,14 +1160,6 @@ function recsGeo(){
     geometry:{type:'Point', coordinates:[r.ll.lng, r.ll.lat]}
   }))};
 }
-function skyFor(hourKey){
-  const hh = +(hourKey||'').slice(11,13) || 12;
-  if(hh < 6 || hh >= 19) return {sky:'#0b1220', hor:'#1d2a3d', fog:'#141d2a'};
-  if(hh < 8)  return {sky:'#4a5f86', hor:'#e0a765', fog:'#c8b49a'};
-  if(hh < 16) return {sky:'#5f8fc4', hor:'#b9cbdc', fog:'#c3ceda'};
-  return {sky:'#3f5c88', hor:'#e09a5e', fog:'#c2ae97'};
-}
-
 function init3D(){
   if(m3) return;
   const c = map.getCenter();
