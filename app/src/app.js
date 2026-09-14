@@ -1447,6 +1447,8 @@ $('b3d').onclick = () => set3D(true);
 $('exag').oninput = () => {
   $('exagtxt').textContent = (+$('exag').value).toFixed(1) + '×';
   if(m3 && m3ready){ try{ m3.setTerrain({source:'dem', exaggeration:+$('exag').value}); }catch(e){} }
+  // ฝั่ง three ต้องยกทั้งเมช ทั้งควัน และทั้งของที่ทาบพื้น ให้ตรงกันในคราวเดียว
+  if(S.renderer3 === 'three') update3D();
 };
 $('smokeopa').oninput = () => {
   $('smokeopatxt').textContent = Math.round(+$('smokeopa').value*100) + '%';
@@ -1460,6 +1462,11 @@ $('showGroundLayer').onchange = update3D;
 /* มุมมองภูเขา — ลดกล้องลงใกล้พื้นและเงยเกือบสุด ให้สันเขาตัดกับขอบฟ้า
    ที่ผ่านมาภูเขาดูแบนเพราะกล้องอยู่สูงและซูมออก ไม่ใช่เพราะไม่มีข้อมูลความสูง */
 $('bRidge').onclick = () => {
+  if(S.renderer3 === 'three'){
+    const h = S.result && S.result.perHour[S.hourIndex];
+    if(g3) g3.ridgeView(h ? h.wdir : 0);
+    return;
+  }
   if(!m3) return;
   const h = S.result && S.result.perHour[S.hourIndex];
   const c = plumeCentroid() || S.origin || map.getCenter();
@@ -1525,6 +1532,11 @@ function setTrueScale(on){
 $('trueScale').onchange = () => setTrueScale($('trueScale').checked);
 
 $('bAlign').onclick = () => {
+  if(S.renderer3 === 'three'){
+    const h = S.result && S.result.perHour[S.hourIndex];
+    if(g3) g3.alignToWind(h ? h.wdir : 0);
+    return;
+  }
   if(!m3 || !S.result) return;
   const h = S.result.perHour[S.hourIndex];
   const bearing = ((h ? h.wdir : 0) + 180) % 360;
@@ -1947,6 +1959,7 @@ $('bFit').onclick = () => {
   map.fitBounds(bb);
   if(is3D && m3) m3.fitBounds([[bb.getWest(),bb.getSouth()],[bb.getEast(),bb.getNorth()]],
                               {pitch:64, duration:800, padding:60});
+  if(is3D && g3) g3.fitBounds();
 };
 $('bCsv').onclick = exportCsv;
 $('bGeo').onclick = exportGeo;

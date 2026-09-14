@@ -112,11 +112,33 @@ export async function create3D(container, view) {
       pushOverlays(next);
     },
     resize: () => stage.resize(),
+    /**
+     * หันกล้องไปตามทิศที่ควันลอย — ยืน**ต้นลม**มองไปทางท้ายลม
+     * `wdir` คือทิศที่ลม**พัดมาจาก** กล้องจึงต้องไปอยู่ฝั่งนั้น แล้วมองย้อนเข้าหาเป้า
+     */
+    alignToWind(wdirDeg) {
+      const r = cur.result; if (!r) return;
+      const a = wdirDeg * Math.PI / 180;
+      const d = Math.max(r.R * 1.25, 2000);
+      stage.controls.target.set(r.cx, r.cy, 0);
+      stage.camera.position.set(r.cx + Math.sin(a) * d, r.cy + Math.cos(a) * d, d * 0.38);
+      stage.camera.lookAt(stage.controls.target);
+    },
+    /** มุมมองภูเขา — ต่ำและใกล้กว่า เพื่อให้อ่านความชันกับการที่ควันชนสันเขาออก */
+    ridgeView(wdirDeg) {
+      const r = cur.result; if (!r) return;
+      const a = wdirDeg * Math.PI / 180;
+      const d = Math.max(r.R * 0.85, 1200);
+      stage.controls.target.set(r.cx, r.cy, 0);
+      stage.camera.position.set(r.cx + Math.sin(a) * d, r.cy + Math.cos(a) * d, d * 0.17);
+      stage.camera.lookAt(stage.controls.target);
+    },
     fitBounds() {
       const r = cur.result;
       if (!r) return;
       stage.controls.target.set(r.cx, r.cy, 0);
       stage.camera.position.set(r.cx, r.cy - r.R * 1.8, r.R * 0.6);
+      stage.camera.lookAt(stage.controls.target);
     },
     dispose() {
       stage.stop();
