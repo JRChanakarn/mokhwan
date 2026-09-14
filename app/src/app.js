@@ -54,10 +54,17 @@ const S = {
   wxMode:'auto', wx:null, wxErr:null,
   man:{ws:2.0, wdir:45, stab:'E', mix:300},
   date:'', time:'08:00', dur:3,
-  /* ช่วงที่จำลอง แยกจาก dur (ช่วงที่เผา)
-     **ปริยายเท่ากับ dur** เพราะเอนจินไม่มีความจำข้ามชั่วโมง ชั่วโมงหลังไฟดับจึงว่างเปล่า
-     (ยืนยันด้วย app/test/window.test.js) ตั้งยาวกว่านี้ได้ถึง 24 แต่จะได้ช่องว่างเปล่า */
-  window:3,
+  /**
+   * ชั่วโมง**ส่วนเกิน**ที่จำลองต่อหลังไฟดับ — เก็บเป็นส่วนต่าง ไม่ใช่ความยาวสัมบูรณ์
+   *
+   * รอบแรกเก็บเป็นความยาวสัมบูรณ์ (`window`) แล้วพัง: ใครตั้ง `S.dur` ตรงๆ โดยไม่ผ่าน
+   * ตัวจัดการของช่อง input จะได้จำนวนชั่วโมงไม่ตรงกับที่เผา (smoke test จับได้ —
+   * ตั้ง dur = 1 แล้วได้ผล 3 ชั่วโมง) เก็บเป็นส่วนต่างแล้วมันตามหลัง dur เสมอทุกทาง
+   *
+   * ปริยาย 0 เพราะเอนจินไม่มีความจำข้ามชั่วโมง ชั่วโมงหลังไฟดับจึงว่างเปล่า
+   * (ยืนยันด้วย app/test/window.test.js) ตั้งเพิ่มได้จนรวมเป็น 24 แต่จะได้ช่องว่าง
+   */
+  windowExtra:0,
   bg:25, bgAuto:false, bgSeries:null, avg:60, rangeKm:10, res:180, pop:180, opacity:0.6, depo:true,
   view:'hour', hourIndex:0, tab:'sum',
   result:null, origin:null, computing:false,
@@ -293,8 +300,8 @@ function setWxStatus(html, isErr){
 
 /* สร้างชุดชั่วโมงสำหรับการจำลอง */
 function buildHours(){
-  // ความยาว timeline = ช่วงที่จำลอง ไม่ใช่ช่วงที่เผา
-  const n = Math.max(1, Math.round(S.window || S.dur));
+  // ความยาว timeline = ช่วงที่เผา + ส่วนเกินที่จะดูต่อหลังไฟดับ
+  const n = Math.max(1, Math.round(S.dur) + Math.max(0, Math.round(S.windowExtra || 0)));
   const start = new Date(S.date + 'T' + S.time + ':00');
   const out = [];
   for(let i=0;i<n;i++){
@@ -1697,7 +1704,7 @@ function saveScenario(){
       latlng: p.latlng ? [p.latlng.lat,p.latlng.lng] : null,
       latlngs: p.latlngs ? p.latlngs.map(c => [c.lat,c.lng]) : null})),
     receptors:S.receptors.map(r => ({name:r.name, kind:r.kind, src:r.src, ll:[r.ll.lat,r.ll.lng]})),
-    date:S.date, time:S.time, dur:S.dur, window:S.window, bg:S.bg, bgAuto:S.bgAuto, man:S.man, wxMode:S.wxMode,
+    date:S.date, time:S.time, dur:S.dur, windowExtra:S.windowExtra, bg:S.bg, bgAuto:S.bgAuto, man:S.man, wxMode:S.wxMode,
     rangeKm:S.rangeKm, res:S.res, pop:S.pop, depo:S.depo, model:S.model, wsFloor:S.wsFloor, useWind:S.useWind, trueScale:S.trueScale, efRatio:S.efRatio, center:[map.getCenter().lat,map.getCenter().lng], zoom:map.getZoom()};
   download('smoke-scenario.json', JSON.stringify(data,null,1), 'application/json');
 }
@@ -1710,7 +1717,9 @@ function loadScenario(txt){
     S.nextId = Math.max(1, ...S.plots.map(p => p.id||0)) + 1;
     S.sel = S.plots.length ? S.plots[0].id : null;
     S.receptors = (d.receptors||[]).map(r => ({name:r.name, kind:r.kind, src:r.src, ll:L.latLng(r.ll[0],r.ll[1])}));
-    Object.assign(S, {date:d.date||S.date, time:d.time||S.time, dur:d.dur||S.dur, window:d.window||S.window, bg:d.bg??S.bg,
+    Object.assign(S, {date:d.date||S.date, time:d.time||S.time, dur:d.dur||S.dur,
+    // งานที่บันทึกไว้ก่อนหน้าเก็บเป็นความยาวสัมบูรณ์ แปลงกลับเป็นส่วนต่างให้
+    windowExtra: d.windowExtra ?? (d.window != null ? Math.max(0, d.window - (d.dur||S.dur)) : S.windowExtra), bg:d.bg??S.bg,
       man:d.man||S.man, wxMode:d.wxMode||'auto', rangeKm:d.rangeKm||10, res:d.res||180, bgAuto:!!d.bgAuto,
       pop:d.pop??180, depo:d.depo!==false});
     if(d.center) map.setView(d.center, d.zoom||13);
@@ -1796,20 +1805,24 @@ $('bdate').onchange = () => {
 $('btime').onchange = () => { S.time = $('btime').value; schedule(); };
 $('bdur').oninput   = () => {
   S.dur = Math.max(1, Math.min(12, +$('bdur').value||1));
-  // ช่วงที่ดูต้องไม่สั้นกว่าช่วงที่เผา ไม่งั้นมวลที่ปล่อยจะถูกอัดลงช่องที่มีอยู่จนผิดรูป
-  if(S.window < S.dur){ S.window = S.dur; $('bwin').value = S.window; }
-  syncWindowNote(); S.hourIndex = 0; schedule();
+  // ส่วนเกินคงเดิม ช่องรวมจึงขยับตาม dur เองโดยที่ผู้ใช้ไม่ต้องแก้สองที่
+  clampWindowExtra(); syncWindowNote(); S.hourIndex = 0; schedule();
 };
 $('bwin').oninput   = () => {
-  S.window = Math.max(S.dur, Math.min(24, +$('bwin').value||S.dur));
-  syncWindowNote(); S.hourIndex = 0; schedule();
+  S.windowExtra = (+$('bwin').value || S.dur) - S.dur;
+  clampWindowExtra(); syncWindowNote(); S.hourIndex = 0; schedule();
 };
+/** หนีบส่วนเกินให้ไม่ติดลบและรวมแล้วไม่เกิน 24 ชม. แล้วสะท้อนกลับไปที่ช่อง input */
+function clampWindowExtra(){
+  S.windowExtra = Math.max(0, Math.min(24 - S.dur, Math.round(S.windowExtra || 0)));
+  $('bwin').value = S.dur + S.windowExtra;
+}
 /* บอกความจริงตรงๆ ว่าหลังไฟดับจะเห็นอะไร
    วัดจากเอนจินจริงแล้ว (app/test/window.test.js): **ทั้งสองโมเดลได้ศูนย์ทันทีที่ไฟดับ**
    เพราะ puffs ถูกสร้างใหม่ทุกชั่วโมงใน puff.ts และ gauss เป็น steady-state
    ห้ามเขียนป้ายให้ดูดีกว่าความจริง คนตั้งไว้ 24 แล้วเจอช่องว่างต้องรู้ล่วงหน้าว่าทำไม */
 function syncWindowNote(){
-  const after = Math.max(0, S.window - S.dur);
+  const after = Math.max(0, S.windowExtra || 0);
   const el = $('winnote');
   if(!el) return;
   el.textContent = after
@@ -2039,7 +2052,7 @@ $('bGeoloc').onclick = () => {
 
 function syncAllInputs(){
   $('bdate').value = S.date; $('btime').value = S.time; $('bdur').value = S.dur;
-  $('bwin').value = S.window; syncWindowNote();
+  clampWindowExtra(); syncWindowNote();
   $('bg').value = S.bg; $('range').value = S.rangeKm; $('res').value = S.res;
   $('pop').value = S.pop; $('depo').checked = S.depo; $('opa').value = S.opacity;
   $('bgAuto').checked = S.bgAuto;

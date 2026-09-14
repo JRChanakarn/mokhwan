@@ -576,12 +576,20 @@ if (wkr) {
 
 /* ── การโหลดของภายนอก ───────────────────────────────────────────────── */
 
-const mlBefore = await page.evaluate(() =>
-  performance.getEntriesByType('resource').filter(x => /maplibre/i.test(x.name)).length);
-check(mlBefore === 0, `maplibre ไม่ถูกโหลดจนกว่าจะกด 3D (โหลดแล้ว ${mlBefore} ไฟล์)`);
+// ตัววาด 3 มิติมีสองตัว ทั้งคู่ต้องถูก import แบบ dynamic — bundle แรกจึงไม่แบกตัวไหนเลย
+const libBefore = await page.evaluate(() => {
+  const r = performance.getEntriesByType('resource').map(x => x.name);
+  return { ml: r.filter(n => /maplibre/i.test(n)).length,
+           three: r.filter(n => /\/three|three\.module|three-/i.test(n)).length };
+});
+check(libBefore.ml === 0 && libBefore.three === 0,
+      `ไม่โหลดไลบรารีตัววาดใดจนกว่าจะกด 3D (maplibre ${libBefore.ml} · three ${libBefore.three} ไฟล์)`);
 
 // เข้าโหมด 3D ต้องพร้อมเร็วและไม่ตันหลัก — ของเดิม poll m3.resize() ทุก 150 มิลลิวินาที
 // สูงสุด 40 รอบ ทำให้แท็บค้าง 30-60 วินาที · วัดทั้งเวลาที่ใช้ และว่าเธรดหลักยังตอบสนอง
+// เคสชุด 3 มิติข้างล่างตรวจมุมมอง**รายชั่วโมง**โดยเฉพาะ แต่เทสก่อนหน้าทิ้งไว้ที่
+// "เฉลี่ย 24 ชม." ซึ่งเป็นมุมมองที่ตั้งใจซ่อนก้อนควัน — ตั้งให้ตรงก่อน
+await page.click('#vHour');
 const t3d = Date.now();
 await page.click('#b3d');
 let blocked = 0;
@@ -590,13 +598,92 @@ const spin = setInterval(async () => {
   try { await page.evaluate('1'); if (Date.now() - t > 3000) blocked++; } catch { blocked++; }
 }, 1000);
 try {
+  // รอ `window.__stage3d` ไม่ใช่ `#m3diag` — ตัวจัดการปุ่มเป็น async กว่าจะตั้งสปินเนอร์
+  // ก็ผ่านไปหลายมิลลิวินาที การเช็ค display === 'none' จึงผ่านตั้งแต่ก่อนเริ่มโหลดด้วยซ้ำ
+  // (เคยรายงาน "พร้อมใน 0.1 วินาที" ทั้งที่ยังไม่ได้เริ่มสร้างฉากเลย)
+  await page.waitForFunction(() => !!window.__stage3d, null, { timeout: 30_000 });
   await page.waitForFunction(() => document.getElementById('m3diag').style.display === 'none', null, { timeout: 30_000 });
-  check(true, `เข้าโหมด 3D พร้อมใน ${((Date.now() - t3d) / 1000).toFixed(1)} วินาที`);
+  check(true, `เข้าโหมด 3D (three.js) พร้อมใน ${((Date.now() - t3d) / 1000).toFixed(1)} วินาที`);
 } catch {
   check(false, `เข้าโหมด 3D ไม่พร้อมใน 30 วินาที — ${await page.textContent('#m3diag')}`);
 }
 clearInterval(spin);
 check(blocked === 0, `เธรดหลักไม่ตันระหว่างเข้า 3D (ครั้งที่ตอบช้าเกิน 3 วินาที: ${blocked})`);
+
+/* ── ตัววาด three.js (ค่าปริยาย) ─────────────────────────────────────── */
+
+const libAfter = await page.evaluate(() => {
+  const r = performance.getEntriesByType('resource').map(x => x.name);
+  return { ml: r.filter(n => /maplibre/i.test(n)).length };
+});
+check(libAfter.ml === 0, `กด 3D แล้วโหลดแค่ three.js ไม่ลาก maplibre มาด้วย (maplibre ${libAfter.ml} ไฟล์)`);
+
+const gl = await page.evaluate(() => {
+  const c = document.querySelector('#map3dgl canvas');
+  let vol = null, terr = null;
+  window.__stage3d.scene.traverse(o => {
+    if (!o.isMesh) return;
+    if (o.material.uniforms) vol = o; else if (!terr) terr = o;
+  });
+  const u = vol && vol.material.uniforms;
+  const r = window.__MOKHWAN__.S.result;
+  const g = r && (r.grids[window.__MOKHWAN__.S.hourIndex] || r.grids[0]);
+  let gridMax = 0;
+  if (g) for (let i = 0; i < g.length; i++) if (g[i] > gridMax) gridMax = g[i];
+  return {
+    canvas: c ? { w: c.width, h: c.height } : null,
+    webgl2: !!(c && c.getContext('webgl2')),
+    volVisible: !!(vol && vol.visible),
+    terrVisible: !!(terr && terr.visible),
+    gmax: u ? u.uGmax.value : null,
+    vmax: u ? u.uVmax.value : null,
+    gridMax,
+    mlContainerHidden: document.getElementById('map3d').style.display === 'none',
+  };
+});
+
+check(gl.canvas && gl.canvas.w > 0 && gl.canvas.h > 0,
+      `สร้าง canvas WebGL ได้จริง (${gl.canvas ? gl.canvas.w + '×' + gl.canvas.h : 'ไม่มี'})`);
+check(gl.webgl2, 'ได้บริบท WebGL2 ซึ่งจำเป็นกับ sampler3D ของ shader ควัน');
+check(gl.terrVisible, 'เมชภูมิประเทศถูกวาด');
+check(gl.volVisible, 'ก้อนควันถูกวาดในมุมมองรายชั่วโมง');
+check(gl.mlContainerHidden, 'คอนเทนเนอร์ของตัววาดเดิมถูกซ่อนไว้ ไม่ซ้อนกันสองตัว');
+
+/* คำกล่าวอ้างหลักของโปรเจกต์ ตรวจแบบปลายทางถึงปลายทาง:
+   ค่าที่ shader ใช้เลือกสี ต้องเท่ากับค่าสูงสุดของกริดที่เอนจินคำนวณ **เป๊ะ**
+   เคยพลาดมาแล้ว: เวอร์ชันก่อนหน้าขยายค่าขึ้น 51 เท่า (กริด 159 → สนาม 8,185 µg/m³)
+   ทำให้คอลัมน์ที่พื้นอยู่แถบส้มถูกวาดเป็นสีม่วง "อันตรายมาก" */
+check(gl.gmax !== null && gl.gridMax > 0 && Math.abs(gl.gmax - gl.gridMax) < 0.01,
+      `สีของควันอิงค่าที่เอนจินคำนวณเป๊ะ (shader ${gl.gmax === null ? '—' : gl.gmax.toFixed(2)} · กริด ${gl.gridMax.toFixed(2)} µg/m³)`);
+check(gl.vmax !== null && gl.vmax <= gl.gmax * 1.0001,
+      'ความหนาแน่นในอากาศไม่พุ่งเกินค่าที่พื้น จึงไม่มีทางวาดข้ามแถบสี');
+
+// มุมมองพีคสูงสุดรวมหลายชั่วโมงที่ลมคนละทิศ ก้อนควันต้องซ่อน ไม่งั้นชี้คนละทางกับชั้นทาบพื้น
+await page.click('#vMax');
+const maxView = await page.evaluate(() => {
+  let vol = null; window.__stage3d.scene.traverse(o => { if (o.isMesh && o.material.uniforms) vol = o; });
+  return { visible: !!(vol && vol.visible), note: document.getElementById('m3diag').textContent };
+});
+check(!maxView.visible, 'มุมมองพีคสูงสุดซ่อนก้อนควัน เหลือแต่ชั้นทาบพื้น');
+check(/รายชั่วโมง/.test(maxView.note), 'บอกเหตุผลที่ซ่อน พร้อมทางกลับ');
+await page.click('#vHour');
+check(await page.evaluate(() => {
+        let vol = null; window.__stage3d.scene.traverse(o => { if (o.isMesh && o.material.uniforms) vol = o; });
+        return !!(vol && vol.visible); }),
+      'กลับมารายชั่วโมงแล้วก้อนควันโผล่เหมือนเดิม');
+
+/* ── สลับไปตัววาดเดิม (MapLibre) แล้วตรวจของเดิมต่อ ─────────────────── */
+/* เคสชั้น hillshade/terrain ข้างล่างตรวจ **สไตล์ของ MapLibre** โดยเฉพาะ
+   ตั้งแต่ค่าปริยายเปลี่ยนเป็น three.js ตัว m3 จึงเป็น null และเคสเหล่านั้นแดง
+   ไม่ได้อ่อนข้อให้ผ่าน — สลับตัววาดให้ตรงกับสิ่งที่เคสนั้นตั้งใจตรวจตั้งแต่แรก */
+await page.click('#r3ml');
+await page.waitForFunction(() => !!window.__MOKHWAN__.m3, null, { timeout: 30_000 });
+await page.waitForFunction(() => document.getElementById('map3dgl').style.display === 'none', null, { timeout: 10_000 });
+check(await page.evaluate(() => !window.__stage3d || !document.querySelector('#map3dgl canvas')),
+      'สลับกลับตัววาดเดิมแล้ว canvas ของ three.js ถูกเก็บกวาด ไม่ค้าง context ไว้');
+check(await page.evaluate(() =>
+        performance.getEntriesByType('resource').some(x => /maplibre/i.test(x.name))),
+      'maplibre ถูกโหลดตอนสลับมาใช้ตัวสำรองเท่านั้น');
 
 // ลบแปลงทิ้งตอนกำลังดึง DEM ต้องไม่ทิ้งสถานะ "กำลังดึง…" ค้างไว้ตลอดไป
 await page.evaluate(() => { window.__MOKHWAN__.S.dem = { loading: true }; window.__MOKHWAN__.S.plots = []; });

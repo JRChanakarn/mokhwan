@@ -121,8 +121,11 @@ export async function create3D(container, view) {
     notes.push('เครื่องวาดไม่ทัน จึงลดความละเอียดลงเอง — กด "แบบเดิม" ถ้ายังหืด');
   });
 
-  // ช่องทางตรวจสอบด้วยตาเวลาพัฒนา — vite ตัดทิ้งตอน build จึงไม่ติดไปกับของจริง
-  if (import.meta.env && import.meta.env.DEV) window.__stage3d = stage;
+  /* ช่องทางตรวจสอบเวลาพัฒนาและให้ smoke test เข้าถึงฉากได้
+     ใช้เงื่อนไขเดียวกับ `window.__MOKHWAN__` ใน app.js เป๊ะ (DEV หรือ ?debug)
+     ไม่งั้นเทสที่รันบน preview build จะเข้าไม่ถึงและผ่านแบบว่างเปล่าโดยไม่มีใครรู้ */
+  if ((import.meta.env && import.meta.env.DEV) ||
+      new URLSearchParams(location.search).has('debug')) window.__stage3d = stage;
   stage.start();
   let cur = view;
 
