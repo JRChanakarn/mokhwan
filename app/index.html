@@ -49,6 +49,8 @@
       <div class="row"><label>วันที่</label><input id="bdate" type="date"></div>
       <div class="row"><label>เริ่มเวลา</label><input id="btime" type="time" step="3600"></div>
       <div class="row"><label for="bdur">เผานาน</label><input id="bdur" type="number" min="1" max="12" step="1" value="3"><span class="u">ชม.</span></div>
+      <div class="row"><label for="bwin">ดูยาว</label><input id="bwin" type="number" min="1" max="24" step="1" value="3"><span class="u">ชม.</span></div>
+      <div id="winnote" style="color:var(--faint);font-size:10.8px;margin:2px 0 0;line-height:1.45"></div>
       <p class="hint">การปล่อยควันจะหนักที่สุดในชั่วโมงแรกแล้วค่อยลดลง ส่วนสัดส่วนควันคุกรุ่นจะเพิ่มขึ้นตามเวลา</p>
     </section>
 
@@ -157,10 +159,17 @@
 <main id="stage">
   <div id="map"></div>
   <div id="map3d"></div>
+  <div id="map3dgl"></div>
   <div id="m3diag"></div>
   <div id="tilewarn"></div>
 
   <div id="d3bar">
+    <div class="seg" id="r3seg" role="group" aria-label="ตัววาด 3 มิติ" style="margin-bottom:7px">
+      <button id="r3three" aria-pressed="true">three.js</button>
+      <button id="r3ml" aria-pressed="false">แบบเดิม</button>
+    </div>
+    <div id="r3note" style="color:var(--faint);font-size:10.8px;margin:0 0 7px;line-height:1.45">
+      แบบเดิมคือตัวสำรอง ใช้เมื่อเครื่องวาดแบบใหม่ไม่ไหว</div>
     <button class="btn" id="bAlign" title="หันกล้องไปตามทิศที่ควันลอย">หันตามควัน</button>
     <button class="btn" id="bRidge" title="ลดระดับกล้องลงใกล้พื้นให้เห็นสันเขา">มุมมองภูเขา</button>
     <label class="chk" style="padding:0;margin-top:7px"><input type="checkbox" id="trueScale"> โหมดข้อมูลจริง</label>
@@ -176,6 +185,9 @@
     <label class="chk" style="padding:0"><input type="checkbox" id="showGroundLayer" checked> ทาบชั้นควันบนพื้น</label>
     <div id="exagnote" style="color:var(--faint);font-size:10.8px;margin-top:7px;line-height:1.45">
       ความสูงควันถูกยกไว้เพื่อให้มองเห็น ตัวเลขจริงดูได้ในแท็บรายชั่วโมง</div>
+    <div id="note3d" style="color:var(--faint);font-size:10.8px;margin-top:7px;line-height:1.45;display:none">
+      ความหนาของควันในแนวดิ่งเป็นการประมาณ ไม่ใช่ผลการคำนวณ — ค่าที่ผิวดินเท่านั้นที่เป็นของจริง
+      ถ้าอากาศเสถียรมากจนควันลอยไม่แตะพื้น ภาพอาจไม่แสดงควันทั้งที่ตัวเลขในตารางยังถูก</div>
   </div>
 
   <div id="toolsLeft">

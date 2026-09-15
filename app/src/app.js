@@ -7,6 +7,8 @@ import EngineWorker from 'mokhwan-engine/worker?worker';
 import { loadDem } from './services/dem.js';
 import { showTerrain, clearTerrain } from './map2d/terrain.js';
 import { buildVolume } from './map3d/volume.js';
+import { skyFor } from './map3d/sky-palette.js';
+import { hourWeights } from './services/emission.js';
 
 /* เวอร์ชันของแอป — แหล่งเดียว ใช้ทั้งป้ายบนหัวและบันทึกการรัน
    หน่วยงานที่เอาผลไปใช้ตัดสินใจต้องย้อนตรวจได้ว่าวันนั้นรันด้วยอะไร */
@@ -52,10 +54,22 @@ const S = {
   wxMode:'auto', wx:null, wxErr:null,
   man:{ws:2.0, wdir:45, stab:'E', mix:300},
   date:'', time:'08:00', dur:3,
+  /**
+   * ชั่วโมง**ส่วนเกิน**ที่จำลองต่อหลังไฟดับ — เก็บเป็นส่วนต่าง ไม่ใช่ความยาวสัมบูรณ์
+   *
+   * รอบแรกเก็บเป็นความยาวสัมบูรณ์ (`window`) แล้วพัง: ใครตั้ง `S.dur` ตรงๆ โดยไม่ผ่าน
+   * ตัวจัดการของช่อง input จะได้จำนวนชั่วโมงไม่ตรงกับที่เผา (smoke test จับได้ —
+   * ตั้ง dur = 1 แล้วได้ผล 3 ชั่วโมง) เก็บเป็นส่วนต่างแล้วมันตามหลัง dur เสมอทุกทาง
+   *
+   * ปริยาย 0 เพราะเอนจินไม่มีความจำข้ามชั่วโมง ชั่วโมงหลังไฟดับจึงว่างเปล่า
+   * (ยืนยันด้วย app/test/window.test.js) ตั้งเพิ่มได้จนรวมเป็น 24 แต่จะได้ช่องว่าง
+   */
+  windowExtra:0,
   bg:25, bgAuto:false, bgSeries:null, avg:60, rangeKm:10, res:180, pop:180, opacity:0.6, depo:true,
   view:'hour', hourIndex:0, tab:'sum',
   result:null, origin:null, computing:false,
-  model:'gauss', dem:null, progress:null, wsFloor:1.0, efRatio:1.0, useWind:false, trueScale: false, windInfo:null,   // ก้าว 5: โหมดแบบจำลอง · DEM ที่โหลดได้ · ความคืบหน้ารายชั่วโมง
+  model:'gauss', dem:null, progress:null, wsFloor:1.0, efRatio:1.0, useWind:false, trueScale: false, windInfo:null,
+  renderer3:'three',   // ตัววาดโหมด 3 มิติ 'three' | 'maplibre' (ของเดิม เก็บเป็นตัวสำรอง)   // ก้าว 5: โหมดแบบจำลอง · DEM ที่โหลดได้ · ความคืบหน้ารายชั่วโมง
 };
 (function initDate(){
   const d = new Date();
@@ -286,7 +300,8 @@ function setWxStatus(html, isErr){
 
 /* สร้างชุดชั่วโมงสำหรับการจำลอง */
 function buildHours(){
-  const n = Math.max(1, Math.round(S.dur));
+  // ความยาว timeline = ช่วงที่เผา + ส่วนเกินที่จะดูต่อหลังไฟดับ
+  const n = Math.max(1, Math.round(S.dur) + Math.max(0, Math.round(S.windowExtra || 0)));
   const start = new Date(S.date + 'T' + S.time + ':00');
   const out = [];
   for(let i=0;i<n;i++){
@@ -301,13 +316,6 @@ function buildHours(){
   }
   return out;
 }
-function hourWeights(n){
-  const w = [], p = [];
-  let s = 0;
-  for(let i=0;i<n;i++){ const x = (i+0.5)/n; const v = Math.exp(-1.6*x); w.push(v); p.push(x); s += v; }
-  return {w: w.map(v => v/s), p};
-}
-
 /* ---------------- fires → payload ---------------- */
 function fireCentroid(){
   const on = S.plots.filter(p => p.on !== false);
@@ -368,7 +376,7 @@ async function runSim(){
 
   const hours = buildHours();
   if(S.hourIndex >= hours.length) S.hourIndex = hours.length - 1;
-  const hw = hourWeights(hours.length);
+  const hw = hourWeights(hours.length, S.dur);
 
   let ux = 0, uy = 0;
   hours.forEach(h => { const th = (270-h.wdir)*Math.PI/180; ux += Math.cos(th); uy += Math.sin(th); });
@@ -1159,14 +1167,6 @@ function recsGeo(){
     geometry:{type:'Point', coordinates:[r.ll.lng, r.ll.lat]}
   }))};
 }
-function skyFor(hourKey){
-  const hh = +(hourKey||'').slice(11,13) || 12;
-  if(hh < 6 || hh >= 19) return {sky:'#0b1220', hor:'#1d2a3d', fog:'#141d2a'};
-  if(hh < 8)  return {sky:'#4a5f86', hor:'#e0a765', fog:'#c8b49a'};
-  if(hh < 16) return {sky:'#5f8fc4', hor:'#b9cbdc', fog:'#c3ceda'};
-  return {sky:'#3f5c88', hor:'#e09a5e', fog:'#c2ae97'};
-}
-
 function init3D(){
   if(m3) return;
   const c = map.getCenter();
@@ -1247,6 +1247,7 @@ function diag(html){
   el.innerHTML = html; el.style.display = 'block';
 }
 function update3D(){
+  if(S.renderer3 === 'three'){ updateThree3D(); return; }
   if(!m3 || !m3ready) return;          // m3ready = สไตล์ถูก parse แล้ว ไม่ใช่ไทล์ครบ
   try{
     m3.getSource('vol').setData(plumeVolume());
@@ -1306,7 +1307,112 @@ function await3D(w3){
   finish();
 }
 
+/* ---------------- 3D mode (three.js) ---------------- */
+/* ตัววาดตัวที่สอง อยู่คนละคอนเทนเนอร์กับ MapLibre และไม่แชร์สถานะใดๆ กันเลย
+   เจตนาคือของเดิมต้องใช้ได้เหมือนเดิมเป๊ะไม่ว่าตัวใหม่จะพังยังไง
+   ไฟล์ฝั่ง three ทั้งหมดอยู่ใต้ map3d/three/ และถูก import แบบ dynamic
+   three.js จึงไม่เข้า bundle แรก เหมือนที่ maplibre-gl ทำอยู่ */
+let g3 = null, g3loading = false;
+
+function view3(){
+  const r = S.result, o = S.origin;
+  return {
+    origin: o, result: r, hourIndex: S.hourIndex, hourKey: currentHourKey(), view: S.view,
+    // ใช้ DEM เฉพาะเมื่อเป็นของรอบคำนวณเดียวกัน ไม่งั้นภูมิประเทศจะเป็นของที่อื่น
+    elev: (S.dem && S.dem.ok && r && S.dem.reqId === r.reqId) ? S.dem.elev : null,
+    bands: BANDS, bandOf, bg: curBg(),
+    toLL: (x,y) => o ? toLL(x, y, o) : null,
+    toXY: ll => o ? toXY(ll, o) : null,
+    opts: { exag:+$('exag').value, pexag:+$('pexag').value,
+            smokeOpacity:+$('smokeopa').value, showGroundLayer:$('showGroundLayer').checked },
+    /* แปลงเป็นพิกัดเอนจินและสีสำเร็จตั้งแต่ตรงนี้ ฝั่ง three จะได้ไม่ต้องรู้จัก Leaflet
+       และไม่มีโอกาสคิดสีของตัวรับไม่ตรงกับแผนที่ 2D */
+    plots: o ? S.plots.filter(p => p.on !== false).map(p => ({ ring: plotRing(p, o) })) : [],
+    receptors: o ? S.receptors.map((rc, i) => {
+      const xy = toXY(rc.ll, o);
+      const v = r ? recValue(i) + curBg() : null;
+      return { x: xy[0], y: xy[1], color: v === null ? '#6b7c92' : recColor(v), name: rc.name };
+    }) : [],
+    groundRaster: S.lastRaster,
+  };
+}
+
+/* วงรอบของแปลงในพิกัดเอนจิน — กติกาเดียวกับ plotsGeo() ที่ MapLibre ใช้
+   จุดเดี่ยวคือวงกลมพื้นที่เท่ากับไร่ที่ระบุ ส่วนแปลงที่วาดเองใช้จุดยอดตามที่วาด */
+function plotRing(p, o){
+  if(p.type === 'point'){
+    const rad = Math.sqrt(p.rai * RAI / Math.PI), ring = [];
+    const c = toXY(p.latlng, o);
+    for(let k = 0; k <= 24; k++){
+      const t = k / 24 * 2 * Math.PI;
+      ring.push([c[0] + rad * Math.cos(t), c[1] + rad * Math.sin(t)]);
+    }
+    return ring;
+  }
+  return p.latlngs.map(ll => toXY(ll, o));
+}
+
+async function initThree3D(){
+  if(g3 || g3loading) return;
+  g3loading = true;
+  diag('<span class="spin"></span> กำลังเริ่มฉาก 3 มิติ…');
+  try{
+    const mod = await import('./map3d/three/index.js');
+    g3 = await mod.create3D($('map3dgl'), view3());
+    diag(g3.notes && g3.notes.length ? g3.notes.join('<br>') : null);
+  }catch(err){
+    g3 = null;
+    diag('<b>เปิดตัววาดแบบใหม่ไม่สำเร็จ</b><br>' + ((err && err.message) || '') +
+         '<br>กดปุ่ม “แบบเดิม” เพื่อใช้ตัวสำรอง');
+  }finally{ g3loading = false; }
+}
+
+function updateThree3D(){
+  if(!g3) return;
+  // facade คืนข้อความเตือนถ้าโหมดมุมมองปัจจุบันแสดงก้อนควันไม่ได้ ให้แอปเป็นคนแสดงเอง
+  try{ diag(g3.update(view3()) || null); }catch(e){}
+}
+
+function disposeThree3D(){ if(g3){ try{ g3.dispose(); }catch(e){} g3 = null; } }
+
+function setRenderer3(which){
+  S.renderer3 = which;
+  $('r3three').setAttribute('aria-pressed', String(which === 'three'));
+  $('r3ml').setAttribute('aria-pressed', String(which === 'maplibre'));
+  $('note3d').style.display = which === 'three' ? 'block' : 'none';
+  try{ localStorage.setItem('renderer3', which); }catch(e){}
+}
+
+function switchRenderer3(which){
+  if(S.renderer3 === which) return;
+  const was3D = is3D;
+  if(was3D) set3D(false);                 // ปิดตัวเดิมให้สะอาดก่อน ไม่ให้มีสถานะค้างข้ามตัววาด
+  setRenderer3(which);
+  if(was3D) set3D(true);
+}
+$('r3three').onclick = () => switchRenderer3('three');
+$('r3ml').onclick    = () => switchRenderer3('maplibre');
+/* กู้ตัววาดที่ผู้ใช้เลือกไว้ครั้งก่อน — ต้องเรียกก่อนเปิดโหมด 3 มิติครั้งแรกเสมอ
+   และเรียกเสมอแม้ไม่มีค่าเก็บไว้ เพื่อให้ป้าย note3d กับ aria-pressed ตรงกับ S ตั้งแต่ต้น */
+try{
+  const v = localStorage.getItem('renderer3');
+  setRenderer3(v === 'maplibre' || v === 'three' ? v : S.renderer3);
+}catch(e){ setRenderer3(S.renderer3); }
+
 async function set3D(on){
+  if(S.renderer3 === 'three'){
+    is3D = on;
+    document.body.classList.toggle('is3d', on);
+    $('b2d').setAttribute('aria-pressed', !on);
+    $('b3d').setAttribute('aria-pressed', on);
+    $('map').style.display     = on ? 'none'  : 'block';
+    $('map3d').style.display   = 'none';
+    $('map3dgl').style.display = on ? 'block' : 'none';
+    $('d3bar').style.display   = on ? 'block' : 'none';
+    if(on){ await initThree3D(); if(g3) g3.resize(); }
+    else  { disposeThree3D(); diag(null); map.invalidateSize(); }
+    return;
+  }
   if(on && !maplibregl){
     try{
       maplibregl = (await import('maplibre-gl')).default;
@@ -1345,12 +1451,14 @@ async function set3D(on){
     map.invalidateSize();
   }
 }
-window.addEventListener('resize', () => { if(is3D && m3) m3.resize(); });
+window.addEventListener('resize', () => { if(is3D && m3) m3.resize(); if(is3D && g3) g3.resize(); });
 $('b2d').onclick = () => set3D(false);
 $('b3d').onclick = () => set3D(true);
 $('exag').oninput = () => {
   $('exagtxt').textContent = (+$('exag').value).toFixed(1) + '×';
   if(m3 && m3ready){ try{ m3.setTerrain({source:'dem', exaggeration:+$('exag').value}); }catch(e){} }
+  // ฝั่ง three ต้องยกทั้งเมช ทั้งควัน และทั้งของที่ทาบพื้น ให้ตรงกันในคราวเดียว
+  if(S.renderer3 === 'three') update3D();
 };
 $('smokeopa').oninput = () => {
   $('smokeopatxt').textContent = Math.round(+$('smokeopa').value*100) + '%';
@@ -1364,6 +1472,11 @@ $('showGroundLayer').onchange = update3D;
 /* มุมมองภูเขา — ลดกล้องลงใกล้พื้นและเงยเกือบสุด ให้สันเขาตัดกับขอบฟ้า
    ที่ผ่านมาภูเขาดูแบนเพราะกล้องอยู่สูงและซูมออก ไม่ใช่เพราะไม่มีข้อมูลความสูง */
 $('bRidge').onclick = () => {
+  if(S.renderer3 === 'three'){
+    const h = S.result && S.result.perHour[S.hourIndex];
+    if(g3) g3.ridgeView(h ? h.wdir : 0);
+    return;
+  }
   if(!m3) return;
   const h = S.result && S.result.perHour[S.hourIndex];
   const c = plumeCentroid() || S.origin || map.getCenter();
@@ -1429,6 +1542,11 @@ function setTrueScale(on){
 $('trueScale').onchange = () => setTrueScale($('trueScale').checked);
 
 $('bAlign').onclick = () => {
+  if(S.renderer3 === 'three'){
+    const h = S.result && S.result.perHour[S.hourIndex];
+    if(g3) g3.alignToWind(h ? h.wdir : 0);
+    return;
+  }
   if(!m3 || !S.result) return;
   const h = S.result.perHour[S.hourIndex];
   const bearing = ((h ? h.wdir : 0) + 180) % 360;
@@ -1586,7 +1704,7 @@ function saveScenario(){
       latlng: p.latlng ? [p.latlng.lat,p.latlng.lng] : null,
       latlngs: p.latlngs ? p.latlngs.map(c => [c.lat,c.lng]) : null})),
     receptors:S.receptors.map(r => ({name:r.name, kind:r.kind, src:r.src, ll:[r.ll.lat,r.ll.lng]})),
-    date:S.date, time:S.time, dur:S.dur, bg:S.bg, bgAuto:S.bgAuto, man:S.man, wxMode:S.wxMode,
+    date:S.date, time:S.time, dur:S.dur, windowExtra:S.windowExtra, bg:S.bg, bgAuto:S.bgAuto, man:S.man, wxMode:S.wxMode,
     rangeKm:S.rangeKm, res:S.res, pop:S.pop, depo:S.depo, model:S.model, wsFloor:S.wsFloor, useWind:S.useWind, trueScale:S.trueScale, efRatio:S.efRatio, center:[map.getCenter().lat,map.getCenter().lng], zoom:map.getZoom()};
   download('smoke-scenario.json', JSON.stringify(data,null,1), 'application/json');
 }
@@ -1599,7 +1717,9 @@ function loadScenario(txt){
     S.nextId = Math.max(1, ...S.plots.map(p => p.id||0)) + 1;
     S.sel = S.plots.length ? S.plots[0].id : null;
     S.receptors = (d.receptors||[]).map(r => ({name:r.name, kind:r.kind, src:r.src, ll:L.latLng(r.ll[0],r.ll[1])}));
-    Object.assign(S, {date:d.date||S.date, time:d.time||S.time, dur:d.dur||S.dur, bg:d.bg??S.bg,
+    Object.assign(S, {date:d.date||S.date, time:d.time||S.time, dur:d.dur||S.dur,
+    // งานที่บันทึกไว้ก่อนหน้าเก็บเป็นความยาวสัมบูรณ์ แปลงกลับเป็นส่วนต่างให้
+    windowExtra: d.windowExtra ?? (d.window != null ? Math.max(0, d.window - (d.dur||S.dur)) : S.windowExtra), bg:d.bg??S.bg,
       man:d.man||S.man, wxMode:d.wxMode||'auto', rangeKm:d.rangeKm||10, res:d.res||180, bgAuto:!!d.bgAuto,
       pop:d.pop??180, depo:d.depo!==false});
     if(d.center) map.setView(d.center, d.zoom||13);
@@ -1683,7 +1803,33 @@ $('bdate').onchange = () => {
   schedule();
 };
 $('btime').onchange = () => { S.time = $('btime').value; schedule(); };
-$('bdur').oninput   = () => { S.dur = Math.max(1, Math.min(12, +$('bdur').value||1)); S.hourIndex = 0; schedule(); };
+$('bdur').oninput   = () => {
+  S.dur = Math.max(1, Math.min(12, +$('bdur').value||1));
+  // ส่วนเกินคงเดิม ช่องรวมจึงขยับตาม dur เองโดยที่ผู้ใช้ไม่ต้องแก้สองที่
+  clampWindowExtra(); syncWindowNote(); S.hourIndex = 0; schedule();
+};
+$('bwin').oninput   = () => {
+  S.windowExtra = (+$('bwin').value || S.dur) - S.dur;
+  clampWindowExtra(); syncWindowNote(); S.hourIndex = 0; schedule();
+};
+/** หนีบส่วนเกินให้ไม่ติดลบและรวมแล้วไม่เกิน 24 ชม. แล้วสะท้อนกลับไปที่ช่อง input */
+function clampWindowExtra(){
+  S.windowExtra = Math.max(0, Math.min(24 - S.dur, Math.round(S.windowExtra || 0)));
+  $('bwin').value = S.dur + S.windowExtra;
+}
+/* บอกความจริงตรงๆ ว่าหลังไฟดับจะเห็นอะไร
+   วัดจากเอนจินจริงแล้ว (app/test/window.test.js): **ทั้งสองโมเดลได้ศูนย์ทันทีที่ไฟดับ**
+   เพราะ puffs ถูกสร้างใหม่ทุกชั่วโมงใน puff.ts และ gauss เป็น steady-state
+   ห้ามเขียนป้ายให้ดูดีกว่าความจริง คนตั้งไว้ 24 แล้วเจอช่องว่างต้องรู้ล่วงหน้าว่าทำไม */
+function syncWindowNote(){
+  const after = Math.max(0, S.windowExtra || 0);
+  const el = $('winnote');
+  if(!el) return;
+  el.textContent = after
+    ? `⚠ ${after} ชั่วโมงหลังไฟดับจะว่างเปล่า — แบบจำลองไม่เก็บควันข้ามชั่วโมง ` +
+      `ควันหายทันทีที่หยุดปล่อย ถ้าอยากเห็นควันนานขึ้นให้เพิ่ม “เผานาน”`
+    : 'ดูเท่าช่วงที่เผาพอดี — ทุกชั่วโมงมีควัน';
+}
 
 /* สถานะ DEM ใต้ปุ่มเลือกแบบจำลอง — แหล่ง · ความละเอียด · ต่างระดับ · Froude รายชั่วโมง */
 /* สถานะสนามลมจริง — บอกตรงๆ ว่าหยาบแค่ไหน ไม่ขายเกินจริง */
@@ -1757,6 +1903,8 @@ function setModel(m){
       'ระดับที่ใช้ตัดสินใจเชิงนโยบายต้องใช้ CALPUFF หรือ WRF-Chem'
     : 'แบบจำลอง Gaussian plume ระดับคัดกรอง สมมติพื้นราบและลมคงที่ในแต่ละชั่วโมง ไม่คิดการไหลลงร่องเขาตอนกลางคืน ' +
       'ใช้เปรียบเทียบทางเลือกได้ดี แต่ไม่ใช่ค่าตรวจวัดจริง';
+  // ป้าย "ดูยาว" บอกคนละเรื่องกันในสองโหมด (puff ควันอยู่ต่อ 4 ชม. · gauss หายทันที)
+  syncWindowNote();
   schedule();
 }
 function setWxMode(m){
@@ -1851,6 +1999,7 @@ $('bFit').onclick = () => {
   map.fitBounds(bb);
   if(is3D && m3) m3.fitBounds([[bb.getWest(),bb.getSouth()],[bb.getEast(),bb.getNorth()]],
                               {pitch:64, duration:800, padding:60});
+  if(is3D && g3) g3.fitBounds();
 };
 $('bCsv').onclick = exportCsv;
 $('bGeo').onclick = exportGeo;
@@ -1903,6 +2052,7 @@ $('bGeoloc').onclick = () => {
 
 function syncAllInputs(){
   $('bdate').value = S.date; $('btime').value = S.time; $('bdur').value = S.dur;
+  clampWindowExtra(); syncWindowNote();
   $('bg').value = S.bg; $('range').value = S.rangeKm; $('res').value = S.res;
   $('pop').value = S.pop; $('depo').checked = S.depo; $('opa').value = S.opacity;
   $('bgAuto').checked = S.bgAuto;
