@@ -5,6 +5,13 @@
  * (ดู GridSpec ใน packages/engine/src/types.ts) วางที่กองไฟแล้วควันจะเหลื่อมทั้งก้อน
  * แบบที่ดูเผินๆ เหมือนถูก
  *
+ * **`res` เป็นของ "รอบคำนวณ" ไม่ใช่ของ "ฉาก" — ต้องรับใหม่ทุก `update()`**
+ * `res.cx, res.cy` คือศูนย์กลางโดเมนซึ่ง**เลื่อนไปท้ายลมทุกครั้งที่ลมเปลี่ยน** ของเดิมจำ
+ * `res` ไว้ตั้งแต่ตอนสร้างฉาก พอผู้ใช้เปลี่ยนทิศลมโดยไม่ออกจากโหมด 3 มิติ กล่องจึงถูกวางด้วย
+ * ศูนย์กลางของรอบเก่า ควันเลยลอยห่างจากกองไฟไปได้หลายกิโลเมตร ทั้งที่ชั้นทาบพื้นยังถูก
+ * (วัดได้ 3.2 กม. ทั้งสองแกนตอนสลับลมจาก 270° เป็น 180°) และหายเองเมื่อกด 2D→3D
+ * เพราะฉากถูกสร้างใหม่ — อาการที่ดูเหมือนบั๊กการวาด แต่ต้นตอคือข้อมูลค้าง
+ *
  * **แกน z ของกล่องไม่ได้เริ่มที่ศูนย์** เริ่มที่ `boxZ0 = −dz/2` และสูง `dz·Nz`
  * เพื่อให้ศูนย์กลางเท็กเซลชั้น 0 ตกที่ระดับพื้นพอดี เหตุผลเต็มอยู่ใน volume-field.js
  *
@@ -22,9 +29,11 @@ import { volumeVert, volumeFrag } from './volume.glsl.js';
 /* LUT เริ่มที่ขอบล่างของแถบแรกใน BANDS ไม่ใช่ 1 — ต่ำกว่าแถบแรกแผนที่ 2D ก็ไม่แสดงสี */
 const LUT_HI = 500;
 
-export function createVolume({ res, elevTexture, elevMin = 0, elevMax = 0, bands }) {
-  const { cx, cy, R } = res;
+export function createVolume({ res: res0, elevTexture, elevMin = 0, elevMax = 0, bands }) {
   const LUT_LO = bands[0].lo;
+  /* ความสูงต่ำสุด/สูงสุดของภูมิประเทศเปลี่ยนได้เมื่อเมชถูกสร้างใหม่ (DEM มาทีหลัง หรือโดเมนเลื่อน)
+     จึงต้องเก็บเป็นตัวแปร ไม่ใช่ปิดทับค่าที่รับมาตอนสร้าง — ดู setElevation() ข้างล่าง */
+  let elevLo = elevMin, elevHi = elevMax;
 
   const lut = new THREE.DataTexture(
     buildLutBytes(bands, { lo: LUT_LO, hi: LUT_HI, size: 256 }), 256, 1, THREE.RGBAFormat);
@@ -33,7 +42,7 @@ export function createVolume({ res, elevTexture, elevMin = 0, elevMax = 0, bands
   lut.needsUpdate = true;
 
   const uniforms = {
-    uBoxSize:   { value: new THREE.Vector3(2 * R, 2 * R, 1) },
+    uBoxSize:   { value: new THREE.Vector3(2 * res0.R, 2 * res0.R, 1) },  // ค่าตั้งต้น ถูกทับทุก update()
     uCamLocal:  { value: new THREE.Vector3() },
     uField:     { value: null },
     uGround:    { value: null },
@@ -74,8 +83,9 @@ export function createVolume({ res, elevTexture, elevMin = 0, elevMax = 0, bands
 
   return {
     mesh,
-    update({ grid, hour, opts, step, bg = 0, sunDir = null }) {
+    update({ res = res0, grid, hour, opts, step, bg = 0, sunDir = null }) {
       if (!grid || !hour) { mesh.visible = false; return; }
+      const { cx, cy, R } = res;          // ของรอบนี้เท่านั้น ห้ามใช้ค่าที่จำไว้ตอนสร้างฉาก
       const f = buildField({ grid, res, hour, step, Nz: 48, pexag: opts.pexag });
       if (!(f.vmax > 0)) { mesh.visible = false; return; }
 
@@ -106,8 +116,8 @@ export function createVolume({ res, elevTexture, elevMin = 0, elevMax = 0, bands
       /* **กล่องต้องคร่อมทั้งช่วงความสูงของภูเขาบวกความหนาของควัน**
          เพราะควันเลาะไปตามผิวดินซึ่งสูงต่ำไม่เท่ากันทั้งโดเมน กล่องที่สูงแค่ความหนาควัน
          จะครอบได้แค่บริเวณที่พื้นราบเท่ากันหมด — ที่เหลือควันจะโผล่พ้นกล่องหรือจมใต้กล่อง */
-      const zBase = elevMin * opts.exag + f.aglZ0;
-      const zTopAbs = elevMax * opts.exag + f.aglZ0 + f.aglH;
+      const zBase = elevLo * opts.exag + f.aglZ0;
+      const zTopAbs = elevHi * opts.exag + f.aglZ0 + f.aglH;
       const boxHAbs = Math.max(zTopAbs - zBase, f.aglH);
 
       uniforms.uVmax.value = f.vmax;
@@ -135,6 +145,14 @@ export function createVolume({ res, elevTexture, elevMin = 0, elevMax = 0, bands
       mesh.visible = true;
     },
     setSteps(n) { uniforms.uSteps.value = n; },
+    /**
+     * รับเมชภูมิประเทศชุดใหม่ — ใช้เมื่อโดเมนเลื่อนหรือ DEM เพิ่งมาถึง แล้ว `terrain` ถูกสร้างใหม่
+     * ถ้าไม่เรียก shader จะยังตัดรังสีด้วย texture ความสูงของโดเมนเก่า ควันจะจมภูเขาผิดลูก
+     */
+    setElevation({ elevTexture: tex, elevMin: lo = 0, elevMax: hi = 0 }) {
+      uniforms.uElev.value = tex;
+      elevLo = lo; elevHi = hi;
+    },
     /**
      * ต้องเรียกทุกเฟรม — shader ทำงานในระบบพิกัดกล่อง จึงต้องรู้ตำแหน่งกล้องในระบบนั้น
      *

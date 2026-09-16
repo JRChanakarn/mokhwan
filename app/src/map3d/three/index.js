@@ -25,7 +25,7 @@ export async function create3D(container, view) {
   const spanM = result ? 2 * result.R : 20000;
   const stage = createScene(container, { origin, hourKey: view.hourKey, spanM });
 
-  let terrain = null, volume = null, markers = null, ground = null;
+  let terrain = null, volume = null, markers = null, ground = null, mosaic = null;
   const notes = [];
 
   if (result) {
@@ -58,6 +58,7 @@ export async function create3D(container, view) {
       const tex = new THREE.CanvasTexture(mos.canvas);
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.anisotropy = Math.min(8, stage.renderer.capabilities.getMaxAnisotropy());
+      mosaic = { tex, bounds: mos.bounds };
       applyDomainUv(terrain.mesh.geometry, result, origin, mos.bounds);
       terrain.setTexture(tex);
       if (mos.got < mos.tiles) notes.push(`ภาพดาวเทียมโหลดได้ ${mos.got}/${mos.tiles} ไทล์ — บางส่วนจะโหว่`);
@@ -96,20 +97,48 @@ export async function create3D(container, view) {
     const sd = sunDirection(v.hourKey, v.origin.lat);
     if (!isDaylight(v.hourKey)) sd.z = Math.max(sd.z, 0.25);
 
-    volume.update({ grid: g, hour: h, opts: v.opts, bg: v.bg, sunDir: sd,
+    volume.update({ res: r, grid: g, hour: h, opts: v.opts, bg: v.bg, sunDir: sd,
                     step: Math.max(1, Math.round(r.N / 160)) });
     return null;
+  }
+
+  /**
+   * สร้างเมชภูมิประเทศใหม่เมื่อ "รอยเท้า" ของโดเมนหรือชุดความสูงเปลี่ยน
+   *
+   * ฉากถูกสร้างครั้งเดียวตอนเข้าโหมด 3 มิติ แต่ `result` เป็นของใหม่ทุกครั้งที่คำนวณ และ
+   * ศูนย์กลางโดเมน (cx,cy) **เลื่อนไปท้ายลม** ทุกครั้งที่ลมเปลี่ยน ส่วน DEM ก็มาถึงทีหลังได้
+   * ของเดิมสร้างเมชครั้งเดียวแล้วไม่แตะอีกเลย ภูเขาจึงค้างอยู่ที่โดเมนเก่า และ shader ของควัน
+   * ก็ตัดรังสีด้วย texture ความสูงของที่อื่น — เห็นเป็นควันจมภูเขาผิดลูกโดยไม่มี error
+   *
+   * ต้องชี้ `uElev` ของควันไปที่ texture ใหม่**ก่อน** ทิ้งของเก่า ไม่งั้น shader จะอ่าน
+   * texture ที่ถูก dispose ไปแล้ว
+   */
+  const footprint = r => `${r.cx},${r.cy},${r.R},${r.N}`;
+  let terrainOf = result ? { key: footprint(result), elev: view.elev } : null;
+
+  function syncTerrain(v) {
+    if (!terrain || !v.result) return;
+    if (footprint(v.result) === terrainOf.key && v.elev === terrainOf.elev) return;
+    const next = buildTerrain({ elev: v.elev, res: v.result, exag: v.opts.exag,
+                               texture: mosaic ? mosaic.tex : null });
+    if (mosaic) applyDomainUv(next.mesh.geometry, v.result, v.origin, mosaic.bounds);
+    stage.remove(terrain.mesh);
+    stage.add(next.mesh);
+    if (volume) volume.setElevation(next);
+    terrain.dispose();
+    terrain = next;
+    terrainOf = { key: footprint(v.result), elev: v.elev };
   }
 
   function pushOverlays(v) {
     if (!v.result) return;
     if (markers) {
       markers.setTerrain(terrain ? terrain.raw : null, v.opts.exag);
-      markers.update({ plots: v.plots, receptors: v.receptors });
+      markers.update({ res: v.result, plots: v.plots, receptors: v.receptors });
     }
     if (ground) {
       ground.update({
-        raster: v.groundRaster, opacity: Math.min(1, v.opts.smokeOpacity * 1.3),
+        res: v.result, raster: v.groundRaster, opacity: Math.min(1, v.opts.smokeOpacity * 1.3),
         visible: v.opts.showGroundLayer, raw: terrain ? terrain.raw : null,
         exag: v.opts.exag, origin: v.origin, mLonV: mLon(v.origin.lat), mLatV: M_LAT,
       });
@@ -133,6 +162,7 @@ export async function create3D(container, view) {
     notes,
     update(next) {
       stage.setHour(next.hourKey);
+      syncTerrain(next);             // ต้องมาก่อนทุกอย่าง ของชิ้นอื่นอ้าง terrain.raw กับ elevTexture
       if (terrain && next.opts.exag !== cur.opts.exag) terrain.setExaggeration(next.opts.exag);
       cur = next;
       const note = pushVolume(next);
@@ -174,6 +204,7 @@ export async function create3D(container, view) {
       if (markers) markers.dispose();
       if (ground) ground.dispose();
       if (terrain) terrain.dispose();
+      if (mosaic) mosaic.tex.dispose();
       stage.dispose();
     },
   };
