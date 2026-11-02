@@ -100,6 +100,15 @@ check(workerLoaded > 0, `เอนจินโหลดเป็น Web Worker �
 const rasterBefore = await page.locator('#map .leaflet-image-layer').count();
 check(rasterBefore === 0, `ก่อนปักแปลงยังไม่มีชั้นภาพพลูม (พบ ${rasterBefore})`);
 
+// กด 3D ก่อนปักแปลง — ของเดิมพังด้วย "Cannot read properties of null (reading 'lat')"
+// เพราะ createScene() คิดทิศดวงอาทิตย์จาก origin ที่ยังเป็น null
+await page.click('#b3d');
+await page.waitForFunction(() => document.getElementById('m3diag').style.display === 'block', null, { timeout: 10_000 });
+const early3d = await page.evaluate(() => ({ txt: document.getElementById('m3diag').textContent, stage: !!window.__stage3d }));
+check(early3d.txt.includes('ยังไม่มีแปลงเผา') && !early3d.stage,
+      `กด 3D ก่อนปักแปลงได้ข้อความบอกให้ปักแปลงก่อน ไม่สร้างฉาก (ได้ "${early3d.txt}")`);
+await page.click('#b2d');
+
 /* ── ปักแปลงแล้วต้องคำนวณออกผล ──────────────────────────────────────── */
 
 await page.evaluate(() => {

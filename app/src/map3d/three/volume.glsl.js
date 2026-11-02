@@ -64,6 +64,15 @@ vec2 boxRange(vec3 o, vec3 d, vec3 halfSize) {
   return vec2(max(max(lo.x, lo.y), lo.z), min(min(hi.x, hi.y), hi.z));
 }
 
+/* **แกน v ของสนามควันกลับหัวกับกล่อง — ต้องกลับทุกครั้งที่สุ่ม uField/uGround**
+
+   แถวที่ 0 ของ texture คือ j = 0 ของกริดเอนจิน ซึ่งอยู่ **เหนือสุด** (Data3DTexture และ
+   DataTexture ตั้ง flipY = false ข้อมูลแถวแรกจึงไปอยู่ที่ v = 0 ตรงๆ) ส่วน uvw.y = 0
+   ของกล่องคือด้าน **ใต้สุด** ลืมกลับแล้วควันจะถูกวาดสลับทิศเหนือ-ใต้ทั้งก้อน
+   เป็นบั๊กที่เห็นจากภาพ: หัวพลูมไปโผล่คนละฝั่งกับจุดเผา และสีที่พื้นก็สลับตาม
+   uElev กลับแกนนี้อยู่แล้วด้วยเหตุผลเดียวกัน (ดู 1.0 - duv.y ข้างล่าง) */
+vec2 fieldUv(vec2 uv) { return vec2(uv.x, 1.0 - uv.y); }
+
 /* สุ่มความเข้มข้นควัน (ไม่รวมพื้นหลัง) ที่จุดในระบบพิกัดกล่อง — คืน 0 ถ้าอยู่นอกก้อน */
 float sampleSmoke(vec3 p, vec3 halfSize, float ground) {
   vec3 uvw = (p + halfSize) / uBoxSize;
@@ -71,7 +80,7 @@ float sampleSmoke(vec3 p, vec3 halfSize, float ground) {
   float agl = (uBoxZ0 + uvw.z * uBoxSize.z) - ground;
   float wTex = (agl - uAglZ0) / uAglH;
   if (wTex < 0.0 || wTex > 1.0) return 0.0;
-  return texture(uField, vec3(uvw.xy, wTex)).r * uVmax;
+  return texture(uField, vec3(fieldUv(uvw.xy), wTex)).r * uVmax;
 }
 
 /**
@@ -133,12 +142,12 @@ void main() {
        ลองบวกพื้นหลังก่อนกรองแล้วได้สี่เหลี่ยมฟ้าคลุมทั้งกล่อง เพราะพื้นหลัง 25
        สูงกว่าขอบแถบแรก 15 อยู่แล้ว ทุกจุดในกล่องจึงผ่านเกณฑ์แม้ไม่มีควันสักหยด
        ความทึบก็ต้องมาจากควันล้วน — หมอกพื้นหลังไม่ใช่ควันจากกองไฟนี้ */
-    float craw = texture(uField, vec3(uvw.xy, wTex)).r * uVmax;
+    float craw = texture(uField, vec3(fieldUv(uvw.xy), wTex)).r * uVmax;
     if (craw > uCMin) {
       /* **สีมาจากค่าที่พื้นของคอลัมน์ ไม่ใช่ความหนาแน่นตรงจุดที่รังสีอยู่**
          คนหายใจที่พื้น แถบสีจึงต้องบอกสิ่งที่คนตรงนั้นเจอจริง และต้องตรงกับแผนที่ 2D
          ถ้าลงสีตามความหนาแน่นในอากาศ คอลัมน์ที่พื้นอยู่แถบส้มจะถูกวาดม่วงตอนมองผ่านแกน */
-      float cg = texture(uGround, uvw.xy).r * uGmax + uBg;
+      float cg = texture(uGround, fieldUv(uvw.xy)).r * uGmax + uBg;
       float u = clamp(log(max(cg, uLutLo) / uLutLo) / log(uLutHi / uLutLo), 0.0, 1.0);
       vec3 col = texture(uLut, vec2(u, 0.5)).rgb;
 

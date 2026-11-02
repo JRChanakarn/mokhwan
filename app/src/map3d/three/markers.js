@@ -5,11 +5,15 @@
  *
  * รับ**พิกัดเอนจินและสีสำเร็จ**มาจาก `app.js` ไม่ใช่ latlng กับกฎการลงสี
  * โมดูลนี้จึงไม่รู้จัก Leaflet และไม่มีโอกาสคิดสีไม่ตรงกับแผนที่ 2D
+ *
+ * **`res` ต้องส่งใหม่ทุก `update()`** ศูนย์กลางโดเมนเลื่อนตามลมทุกรอบคำนวณ เหตุผลเต็มอยู่ใน
+ * หัวไฟล์ `volume-mesh.js` — ที่นี่ `res` ใช้สุ่มความสูงพื้นใต้หมุด ถ้าค้างจะยกหมุดด้วยความสูง
+ * ของจุดอื่น ส่วน `createGroundImage` ใช้ทั้งวางระนาบและคิด UV จึงเลื่อนทั้งภาพ
  */
 import * as THREE from 'three';
 import { elevAt, drapeRing } from './drape.js';
 
-export function createMarkers({ res }) {
+export function createMarkers({ res: res0 }) {
   const group = new THREE.Group();
   let raw = null, exag = 1;
   const own = [];
@@ -27,7 +31,7 @@ export function createMarkers({ res }) {
     group,
     setTerrain(nextRaw, nextExag) { raw = nextRaw; exag = nextExag; },
     /** `plots` = [{ring:[[x,y],…]}] · `receptors` = [{x,y,color}] ในพิกัดเอนจิน */
-    update({ plots = [], receptors = [] }) {
+    update({ res = res0, plots = [], receptors = [] }) {
       clear();
 
       for (const p of plots) {
@@ -61,13 +65,14 @@ export function createMarkers({ res }) {
  * ใช้ภาพ raster ตัวเดียวกับที่แผนที่ 2D วาด (`S.lastRaster`) จึงตรงกันเสมอ
  * โดยไม่ต้องคำนวณอะไรซ้ำ
  */
-export function createGroundImage({ res }) {
-  const { N, cell, cx, cy, R } = res;
-  const seg = Math.min(N - 1, 128);
-  const geo = new THREE.PlaneGeometry(2 * R - cell, 2 * R - cell, seg, seg);
+const planeFor = r => new THREE.PlaneGeometry(
+  2 * r.R - r.cell, 2 * r.R - r.cell, Math.min(r.N - 1, 128), Math.min(r.N - 1, 128));
+
+export function createGroundImage({ res: res0 }) {
+  let res = res0;
   const mat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(cx, cy, 0);
+  const mesh = new THREE.Mesh(planeFor(res), mat);
+  mesh.position.set(res.cx, res.cy, 0);
   mesh.renderOrder = 1;
   mesh.visible = false;
 
@@ -75,7 +80,19 @@ export function createGroundImage({ res }) {
 
   return {
     mesh,
-    update({ raster, opacity = 1, visible = false, raw = null, exag = 1, origin, mLonV, mLatV }) {
+    update({ res: next = res, raster, opacity = 1, visible = false, raw = null, exag = 1,
+             origin, mLonV, mLatV }) {
+      /* โดเมนเลื่อนแล้วต้องย้ายระนาบตาม ไม่งั้นภาพจะไปตกนอกแผ่นแล้วถูก clamp เป็นแถบยืด
+         และต้องล้าง lastKey ด้วย เพราะ UV ผูกกับ (cx,cy) ไม่ใช่แค่ขอบเขตของภาพ */
+      if (next !== res) {
+        if (next.N !== res.N || next.R !== res.R || next.cell !== res.cell) {
+          mesh.geometry.dispose();
+          mesh.geometry = planeFor(next);
+        }
+        res = next;
+        mesh.position.set(res.cx, res.cy, 0);
+        lastKey = '';
+      }
       mesh.visible = !!(visible && raster && raster.url);
       if (!mesh.visible) return;
       mat.opacity = opacity;
@@ -95,9 +112,10 @@ export function createGroundImage({ res }) {
       if (key === lastKey) return;
       lastKey = key;
 
+      const geo = mesh.geometry;
       const pos = geo.attributes.position, uv = geo.attributes.uv;
       for (let k = 0; k < pos.count; k++) {
-        const x = cx + pos.getX(k), y = cy + pos.getY(k);
+        const x = res.cx + pos.getX(k), y = res.cy + pos.getY(k);
         // ยก 18 ม. ไม่ใช่ 4 — DEM หยาบ 72 ม./จุด พอคูณ exag แล้วผิวเมชกับระนาบนี้
         // แกว่งเข้าหากันบนไหล่เขาชัน เกิดจุดดำประปรายจาก z-fighting
         pos.setZ(k, elevAt(raw, res, x, y) * exag + 18);
@@ -106,6 +124,6 @@ export function createGroundImage({ res }) {
       }
       pos.needsUpdate = true; uv.needsUpdate = true;
     },
-    dispose() { if (tex) tex.dispose(); geo.dispose(); mat.dispose(); },
+    dispose() { if (tex) tex.dispose(); mesh.geometry.dispose(); mat.dispose(); },
   };
 }
