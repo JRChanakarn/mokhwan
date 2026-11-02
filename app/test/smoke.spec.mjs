@@ -122,6 +122,20 @@ await page.evaluate(() => {
 
 await page.waitForFunction(() => window.__MOKHWAN__.S.result !== null, { timeout: 30_000 });
 
+// แถบเวลาต้องขึ้นจอจริง — ของเดิมตั้ง style.display = '' ซึ่งถอยไปเป็น display:none
+// ของ stylesheet แถบนี้จึงไม่เคยโผล่ตั้งแต่ไฟล์ต้นฉบับ · และต้องไม่ทับ legend กับแผงสรุป
+const tlLayout = await page.evaluate(() => {
+  const box = id => document.getElementById(id).getBoundingClientRect();
+  const tl = box('timeline'), lg = box('legend'), pn = box('panel');
+  return { shown: getComputedStyle(document.getElementById('timeline')).display !== 'none' && tl.height > 0,
+           gapLegend: Math.round(tl.top - lg.bottom), gapPanel: Math.round(tl.top - pn.bottom) };
+});
+check(tlLayout.shown, 'แถบเวลาขึ้นจอเมื่อมีผลคำนวณ');
+check(await page.evaluate(() => !document.getElementById('outsidewarn')),
+      'แปลงเดียวไม่ขึ้นคำเตือนว่าอยู่นอกพื้นที่จำลอง');
+check(tlLayout.gapLegend >= 0 && tlLayout.gapPanel >= 0,
+      `แถบเวลาไม่ทับ legend และแผงสรุป (ช่องว่าง ${tlLayout.gapLegend} / ${tlLayout.gapPanel} px)`);
+
 const r = await page.evaluate(() => {
   const res = window.__MOKHWAN__.S.result;
   return {
@@ -752,6 +766,32 @@ check(await page.evaluate(() => !window.__MOKHWAN__.S.trueScale && !document.get
       'ปิดสนามลมจริงแล้วปลดโหมดข้อมูลจริงตาม');
 await page.click('#useWind');
 await page.waitForFunction(() => !window.__MOKHWAN__.S.computing, null, { timeout: 45_000 });
+
+// "พอดีพื้นที่" ต้องครอบแนวควันด้วย — ของเดิมครอบแค่ตัวแปลง 20 ไร่ เลยซูมเข้าไปถึงระดับ 18
+// เห็นระยะแค่ 50 ม. ส่วนแนวควันยาวหลายกิโลเมตรหลุดจอไปหมด · ต้องกลับ 2D ก่อน
+// เคสก่อนหน้าทิ้งไว้ในโหมด 3D ซึ่งแผนที่ Leaflet ถูกซ่อน กว้าง 0 วัดอะไรไม่ได้
+await page.click('#b2d');
+await page.waitForFunction(() => document.getElementById('map').offsetWidth > 0, null, { timeout: 10_000 });
+await page.click('#bFit');
+await page.waitForTimeout(800);
+const fitZoom = await page.evaluate(() => window.__MOKHWAN__.map.getZoom());
+check(fitZoom <= 16, `"พอดีพื้นที่" ครอบแนวควัน ไม่ซูมเข้าไปที่ตัวแปลงอย่างเดียว (zoom ${fitZoom})`);
+
+// แปลงที่อยู่นอกโดเมนต้องถูกเตือน ไม่หลุดไปเงียบๆ — โดเมนวางตามจุดกึ่งกลางของทุกแปลง
+// ปักแปลงที่สองห่างออกไปราว 100 กม. ทั้งสองแปลงจึงอยู่นอกขอบเขต 10 กม.
+const reqFar = await page.evaluate(() => {
+  const M = window.__MOKHWAN__, c = M.map.getCenter();
+  c.lat += 0.9;
+  const before = M.S.result.reqId;
+  M.addPlot({ type: 'point', latlng: c, rai: 20 });
+  return before;
+});
+await page.waitForFunction(b => window.__MOKHWAN__.S.result.reqId > b && !window.__MOKHWAN__.S.computing,
+                           reqFar, { timeout: 45_000 });
+await page.click('#ptabs button:first-child');
+const outWarn = await page.evaluate(() => document.getElementById('outsidewarn')?.textContent ?? '');
+check(/แปลง [\d, ]+ อยู่นอกพื้นที่จำลอง/.test(outWarn),
+      `เตือนเมื่อแปลงอยู่นอกพื้นที่จำลอง (ได้ "${outWarn.slice(0, 48)}")`);
 
 // host ภายนอกที่แอปคุยด้วยต้องเป็นแค่ผู้ให้บริการแผนที่พื้นฐาน
 // ห้ามมี CDN ของไลบรารีหลุดกลับมา ซึ่งเป็นสิ่งที่งานรื้อโครงนี้กำจัดไป
