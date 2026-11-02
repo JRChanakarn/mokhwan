@@ -1312,7 +1312,7 @@ function await3D(w3){
    เจตนาคือของเดิมต้องใช้ได้เหมือนเดิมเป๊ะไม่ว่าตัวใหม่จะพังยังไง
    ไฟล์ฝั่ง three ทั้งหมดอยู่ใต้ map3d/three/ และถูก import แบบ dynamic
    three.js จึงไม่เข้า bundle แรก เหมือนที่ maplibre-gl ทำอยู่ */
-let g3 = null, g3loading = false;
+let g3 = null, g3loading = false, g3wait = false;   // g3wait = เข้า 3D แล้วแต่ยังไม่มีผล รอสร้างฉาก
 
 function view3(){
   const r = S.result, o = S.origin;
@@ -1354,6 +1354,10 @@ function plotRing(p, o){
 
 async function initThree3D(){
   if(g3 || g3loading) return;
+  /* ฉากสร้างภูมิประเทศและก้อนควันจากผลคำนวณตอนสร้างครั้งเดียว และต้องใช้ origin คิดทิศดวงอาทิตย์
+     ยังไม่มีผลก็อย่าเพิ่งสร้าง (เคยพังด้วย "reading 'lat'") — updateThree3D จะสร้างให้เมื่อผลมาถึง */
+  g3wait = !S.result;
+  if(g3wait){ diag('ยังไม่มีแปลงเผา — กลับไปโหมด 2D แล้วคลิกวางแปลงบนแผนที่ก่อน'); return; }
   g3loading = true;
   diag('<span class="spin"></span> กำลังเริ่มฉาก 3 มิติ…');
   try{
@@ -1368,7 +1372,7 @@ async function initThree3D(){
 }
 
 function updateThree3D(){
-  if(!g3) return;
+  if(!g3){ if(g3wait && is3D && S.result) initThree3D().then(() => g3 && g3.resize()); return; }
   // facade คืนข้อความเตือนถ้าโหมดมุมมองปัจจุบันแสดงก้อนควันไม่ได้ ให้แอปเป็นคนแสดงเอง
   try{ diag(g3.update(view3()) || null); }catch(e){}
 }
