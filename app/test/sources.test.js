@@ -44,6 +44,7 @@ describe('host ภายนอกที่แอปคุยด้วย', () =>
       'gibs.earthdata.nasa.gov',           // ภาพดาวเทียมรายวันและจุดความร้อน
       'api.rainviewer.com',                // เรดาร์ฝน
       'fonts.googleapis.com', 'fonts.gstatic.com',
+      'static.cloudflareinsights.com',     // นับคนเข้าเว็บ (Cloudflare Web Analytics ไม่ใช้ cookie)
       'github.com', 'jrchanakarn.github.io', 'doi.org',   // ลิงก์ในเอกสาร ไม่ใช่คำขอข้อมูล
     ]);
     const hosts = new Set();

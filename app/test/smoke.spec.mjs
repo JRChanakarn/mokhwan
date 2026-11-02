@@ -62,6 +62,7 @@ const externalHosts = new Map();
 await page.route('**/*', route => {
   const u = new URL(route.request().url());
   if (APP_HOSTS.has(u.hostname)) return route.continue();
+  if (u.hostname === 'static.cloudflareinsights.com') return route.fulfill({ status: 200, contentType: 'text/javascript', body: '' });
   externalHosts.set(u.hostname, (externalHosts.get(u.hostname) ?? 0) + 1);
   return route.fulfill({ status: 200, contentType: 'image/png', body: BLANK_PNG });
 });
@@ -227,6 +228,7 @@ await page.unroute('**/*');
 await page.route('**/*', route => {
   const u = new URL(route.request().url());
   if (APP_HOSTS.has(u.hostname)) return route.continue();
+  if (u.hostname === 'static.cloudflareinsights.com') return route.fulfill({ status: 200, contentType: 'text/javascript', body: '' });
   externalHosts.set(u.hostname, (externalHosts.get(u.hostname) ?? 0) + 1);
   if (/elevation-tiles-prod\/terrarium\//.test(u.pathname)) return route.fulfill({ status: 200, contentType: 'image/png', body: TERRARIUM_PNG });
   // สนามลม: ลมไล่ระดับตามลองจิจูด เพื่อให้ spread > 0 พิสูจน์ว่าใช้ค่ารายจุดจริง
