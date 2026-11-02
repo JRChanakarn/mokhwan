@@ -121,6 +121,7 @@ body.is3d #legend{left:232px}
   background:rgba(20,27,37,.95);border:1px solid var(--line);border-radius:6px;height:33px;
   padding:6px 10px;font-size:12.5px;backdrop-filter:blur(6px)}
 #search{width:220px}
+#toolsTop .btn{white-space:nowrap}
 #swrap{position:relative}
 #sres{position:absolute;top:37px;left:0;right:0;background:rgba(20,27,37,.98);border:1px solid var(--line);
   border-radius:6px;display:none;overflow:hidden;max-height:240px;overflow-y:auto}
@@ -137,6 +138,8 @@ body.is3d #legend{left:232px}
   border-right:1px solid var(--linesoft)}
 #viewbar button:last-child{border-right:0}
 #viewbar button[aria-pressed=true]{background:var(--panel3);color:var(--text);font-weight:600}
+/* หลบปุ่มซูม (+/−) ของ Leaflet ที่มุมซ้ายบน — โหมด 3D ซ่อนแผนที่ Leaflet จึงไม่ต้องหลบ */
+body:not(.is3d) #toolsLeft,body:not(.is3d) #viewbar{left:54px}
 
 #tilewarn{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:690;
   background:#3a2a12;border:1px solid #6b4d1c;color:#f0d9a8;padding:6px 12px;border-radius:5px;font-size:12px;display:none}
@@ -199,6 +202,8 @@ body.is3d #legend{left:232px}
 .firemark{font-size:17px;line-height:1;filter:drop-shadow(0 0 3px #000)}
 .recmark{width:9px;height:9px;border-radius:50%;border:1.5px solid #0e141c}
 
+/* จอกลางเหลือแผนที่ไม่ถึง 750px แถวเครื่องมือขวาบนจะยื่นไปทับ #toolsLeft */
+@media (max-width:1100px){#search{width:150px}}
 @media (max-width:960px){
   #app{flex-direction:column}
   #rail{width:100%;flex:0 0 auto;max-height:50dvh;order:2;border-right:0;border-top:1px solid var(--line)}
@@ -207,6 +212,6 @@ body.is3d #legend{left:232px}
   #timeline{bottom:auto;top:92px}
   #legend{display:none}
   #search{width:130px}
-  #viewbar{top:auto;bottom:10px;left:10px;right:10px}
+  #viewbar,body:not(.is3d) #viewbar{top:auto;bottom:10px;left:10px;right:10px}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}#tltrack{scroll-behavior:auto}}
