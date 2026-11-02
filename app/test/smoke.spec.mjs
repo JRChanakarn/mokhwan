@@ -765,6 +765,16 @@ check(await page.evaluate(() => !window.__MOKHWAN__.S.trueScale && !document.get
 await page.click('#useWind');
 await page.waitForFunction(() => !window.__MOKHWAN__.S.computing, null, { timeout: 45_000 });
 
+// "พอดีพื้นที่" ต้องครอบแนวควันด้วย — ของเดิมครอบแค่ตัวแปลง 20 ไร่ เลยซูมเข้าไปถึงระดับ 18
+// เห็นระยะแค่ 50 ม. ส่วนแนวควันยาวหลายกิโลเมตรหลุดจอไปหมด · ต้องกลับ 2D ก่อน
+// เคสก่อนหน้าทิ้งไว้ในโหมด 3D ซึ่งแผนที่ Leaflet ถูกซ่อน กว้าง 0 วัดอะไรไม่ได้
+await page.click('#b2d');
+await page.waitForFunction(() => document.getElementById('map').offsetWidth > 0, null, { timeout: 10_000 });
+await page.click('#bFit');
+await page.waitForTimeout(800);
+const fitZoom = await page.evaluate(() => window.__MOKHWAN__.map.getZoom());
+check(fitZoom <= 16, `"พอดีพื้นที่" ครอบแนวควัน ไม่ซูมเข้าไปที่ตัวแปลงอย่างเดียว (zoom ${fitZoom})`);
+
 // แปลงที่อยู่นอกโดเมนต้องถูกเตือน ไม่หลุดไปเงียบๆ — โดเมนวางตามจุดกึ่งกลางของทุกแปลง
 // ปักแปลงที่สองห่างออกไปราว 100 กม. ทั้งสองแปลงจึงอยู่นอกขอบเขต 10 กม.
 const reqFar = await page.evaluate(() => {

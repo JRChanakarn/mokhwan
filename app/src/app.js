@@ -2015,13 +2015,46 @@ $('tSum').onclick = () => setTab('sum');
 $('tRec').onclick = () => setTab('rec');
 $('tMet').onclick = () => setTab('met');
 
+/* padding ของ fitBounds ให้หลบของที่ลอยทับแผนที่ — แถบมุมมองด้านบน แผงสรุป (ขวาบนเดสก์ท็อป
+   ล่างบนมือถือ) และแถบเวลา · ถ้าหลบแล้วเหลือที่น้อยเกินก็ไม่หลบ ดีกว่า Leaflet ซูมออกสุดทาง */
+function freeMapPadding(){
+  const m = $('map').getBoundingClientRect(), box = id => $(id).getBoundingClientRect();
+  const shown = id => $(id).offsetParent !== null;
+  const vb = box('viewbar');
+  let top = vb.top < m.top + m.height/2 ? vb.bottom - m.top : 0, right = 0, bottom = 0;
+  if(shown('panel')){
+    const p = box('panel');
+    if(p.width < m.width*0.6) right = m.right - p.left; else bottom = m.bottom - p.top;
+  }
+  if(shown('timeline')) bottom = Math.max(bottom, m.bottom - box('timeline').top);
+  if(m.width - right < 160 || m.height - top - bottom < 160) return {};
+  return { paddingTopLeft: [10, top + 10], paddingBottomRight: [right + 10, bottom + 10] };
+}
+/* มุมของส่วนที่ระบายสีอยู่บนแผนที่ (เงื่อนไขเดียวกับ drawOverlay) — ไม่มีผลหรือไม่มีเซลล์ไหนติดสีคืน [] */
+function plumeCorners(){
+  const r = S.result, o = S.origin, disp = currentGrid();
+  if(!r || !o || !disp) return [];
+  const {N, cell, cx, cy, R} = r, BG = curBg();
+  let i0 = N, i1 = -1, j0 = N, j1 = -1;
+  for(let j=0;j<N;j++) for(let i=0;i<N;i++){
+    const v = disp[j*N+i];
+    if(v < 0.5 || bandOf(v + BG) < 0) continue;
+    if(i < i0) i0 = i; if(i > i1) i1 = i;
+    if(j < j0) j0 = j; if(j > j1) j1 = j;
+  }
+  if(i1 < 0) return [];
+  // แถว j=0 คือด้านเหนือ
+  return [toLL(cx - R + i0*cell, cy + R - (j1+1)*cell, o), toLL(cx - R + (i1+1)*cell, cy + R - j0*cell, o)];
+}
 $('bFit').onclick = () => {
   const pts = [];
   S.plots.forEach(p => p.type==='point' ? pts.push(p.latlng) : pts.push(...p.latlngs));
   S.receptors.forEach(r => pts.push(r.ll));
   if(!pts.length) return;
-  const bb = L.latLngBounds(pts).pad(0.25);
-  map.fitBounds(bb);
+  // ครอบแนวควันด้วย — ของเดิมครอบแค่ตัวแปลง แปลงเดียว 20 ไร่จึงซูมจนเห็นระยะ 50 ม. แนวควันหลายกิโลหลุดจอ
+  pts.push(...plumeCorners());
+  const bb = L.latLngBounds(pts).pad(0.1);
+  map.fitBounds(bb, freeMapPadding());
   if(is3D && m3) m3.fitBounds([[bb.getWest(),bb.getSouth()],[bb.getEast(),bb.getNorth()]],
                               {pitch:64, duration:800, padding:60});
   if(is3D && g3) g3.fitBounds();
