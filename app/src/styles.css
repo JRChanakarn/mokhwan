@@ -106,7 +106,8 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border:0;border-radiu
 #dimseg button{padding:0 13px;font-size:12.5px}
 #d3bar{position:absolute;left:10px;bottom:96px;z-index:700;display:none;
   background:rgba(20,27,37,.95);border:1px solid var(--line);border-radius:7px;
-  padding:9px 11px;backdrop-filter:blur(8px);width:212px;font-size:12px}
+  padding:9px 11px;backdrop-filter:blur(8px);width:212px;font-size:12px;
+  max-height:calc(100% - 194px);overflow-y:auto}   /* จอเตี้ยห้ามสูงจนชน #viewbar (ขอบล่าง 88 px) */
 #d3bar label{display:block;color:var(--dim);margin:8px 0 2px}
 #d3bar label b{color:var(--text)}
 #d3bar .btn{width:100%}
@@ -147,6 +148,14 @@ body:not(.is3d) #toolsLeft,body:not(.is3d) #viewbar{left:54px}
 /* timeline */
 #timeline{position:absolute;left:10px;right:10px;bottom:10px;z-index:700;
   background:rgba(20,27,37,.95);border:1px solid var(--line);border-radius:7px;backdrop-filter:blur(8px);display:none}
+/* แถบเวลาสูงราว 128 px — ดันของมุมล่างขึ้นหลบ · จอมือถือไม่แสดง เลือกชั่วโมงจากแท็บรายชั่วโมงแทน */
+@media (min-width:961px){
+  body.hastl #timeline{display:block}
+  body.hastl #legend,body.hastl #d3bar{bottom:148px}
+  body.hastl #d3bar{max-height:calc(100% - 246px)}
+  body.hastl .leaflet-bottom{bottom:138px}
+  body.hastl #panel{max-height:calc(100% - 233px)}
+}
 #tlhead{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--linesoft);font-size:12.3px}
 #tlhead .sp{flex:1}
 #tlhead .play{padding:2px 9px;font-size:13px;line-height:1.5;min-width:30px}
@@ -208,10 +217,20 @@ body:not(.is3d) #toolsLeft,body:not(.is3d) #viewbar{left:54px}
   #app{flex-direction:column}
   #rail{width:100%;flex:0 0 auto;max-height:50dvh;order:2;border-right:0;border-top:1px solid var(--line)}
   #stage{order:1;flex:1;min-height:50dvh}
-  #panel{width:auto;left:10px;right:10px;top:auto;bottom:10px;max-height:46%}
-  #timeline{bottom:auto;top:92px}
+  /* แผนที่แคบเกินจะวางเครื่องมือแถวเดียว — เรียงเป็นสามแถวทางซ้ายบน
+     แถว 1 ปุ่มซูม + #toolsLeft · แถว 2 ค้นหา/แผนที่ฐาน/ตำแหน่งฉัน · แถว 3 มุมมองผล */
+  #toolsTop{top:52px;left:10px}
+  body:not(.is3d) #toolsTop{left:54px}
+  #swrap{flex:1;min-width:0}
+  #search{width:100%}
+  #basesel{width:auto;flex:0 1 auto;min-width:0}   /* select ทั่วไปกว้าง 100% จะเบียดช่องค้นหาจนหาย */
+  #viewbar{top:94px}
+  #wlbadge{top:136px}
+  /* ฉาก 3 มิติบนจอเตี้ยไม่มีที่ให้แผงนี้จริงๆ — อย่างน้อยไม่ทับแถวเครื่องมือ (ยังบังแผงสรุปบางส่วน) */
+  #d3bar{top:136px;bottom:auto;max-height:calc(100% - 146px)}
+  /* เว้นขอบล่างให้ attribution ของแผนที่ ไม่ให้ลอยทับเนื้อหาแผงสรุป */
+  #panel{width:auto;left:10px;right:10px;top:auto;bottom:24px;max-height:42%}
+  .leaflet-control-scale{display:none}
   #legend{display:none}
-  #search{width:130px}
-  #viewbar,body:not(.is3d) #viewbar{top:auto;bottom:10px;left:10px;right:10px}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}#tltrack{scroll-behavior:auto}}

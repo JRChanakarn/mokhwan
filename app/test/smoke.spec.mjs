@@ -121,6 +121,18 @@ await page.evaluate(() => {
 
 await page.waitForFunction(() => window.__MOKHWAN__.S.result !== null, { timeout: 30_000 });
 
+// แถบเวลาต้องขึ้นจอจริง — ของเดิมตั้ง style.display = '' ซึ่งถอยไปเป็น display:none
+// ของ stylesheet แถบนี้จึงไม่เคยโผล่ตั้งแต่ไฟล์ต้นฉบับ · และต้องไม่ทับ legend กับแผงสรุป
+const tlLayout = await page.evaluate(() => {
+  const box = id => document.getElementById(id).getBoundingClientRect();
+  const tl = box('timeline'), lg = box('legend'), pn = box('panel');
+  return { shown: getComputedStyle(document.getElementById('timeline')).display !== 'none' && tl.height > 0,
+           gapLegend: Math.round(tl.top - lg.bottom), gapPanel: Math.round(tl.top - pn.bottom) };
+});
+check(tlLayout.shown, 'แถบเวลาขึ้นจอเมื่อมีผลคำนวณ');
+check(tlLayout.gapLegend >= 0 && tlLayout.gapPanel >= 0,
+      `แถบเวลาไม่ทับ legend และแผงสรุป (ช่องว่าง ${tlLayout.gapLegend} / ${tlLayout.gapPanel} px)`);
+
 const r = await page.evaluate(() => {
   const res = window.__MOKHWAN__.S.result;
   return {

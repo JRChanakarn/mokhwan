@@ -1562,10 +1562,12 @@ $('bAlign').onclick = () => {
 let playTimer = null;
 
 function renderTimeline(){
-  const tl = $('timeline');
-  if(!S.result){ tl.style.display = 'none'; setPlaying(false); return; }
+  /* เปิดปิดด้วยคลาสบน body ไม่ใช่ style.display — ของเดิมตั้ง '' ซึ่งถอยกลับไปเป็น display:none
+     ของ stylesheet แถบนี้จึงไม่เคยขึ้นจอเลย · คลาสเดียวกันยังให้ CSS ดัน legend/แผงสรุป
+     ขึ้นหลบ และซ่อนแถบบนจอมือถือได้โดยไม่ต้องรู้จักกันเอง */
+  document.body.classList.toggle('hastl', !!S.result);
+  if(!S.result){ setPlaying(false); return; }
   const hrs = S.result.perHour;
-  tl.style.display = '';
   const peak = Math.max(...hrs.map(h => h.max), 1);
   $('tlmeta').textContent = hrs.length + ' ชม. · ' + (S.wxMode==='auto' && S.wx ? 'พยากรณ์จริง' : 'ค่าที่กำหนดเอง');
   $('bPlay').disabled = hrs.length < 2;
