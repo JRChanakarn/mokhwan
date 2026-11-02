@@ -109,6 +109,20 @@ function plotCentroid(p){
   p.latlngs.forEach(c => { la += c.lat; ln += c.lng; });
   return L.latLng(la/p.latlngs.length, ln/p.latlngs.length);
 }
+/* เลขแปลงที่อยู่นอกโดเมนของผลล่าสุด — โดเมนเป็นสี่เหลี่ยม ±R รอบ (cx, cy) ที่วางตามจุดกึ่งกลาง
+   ของทุกแปลง แปลงที่ห่างกันเกินขอบเขตจึงหลุดออกไปเงียบๆ (เจอตอนทดสอบสองแปลงห่างกัน ~100 กม.
+   พีคตกจาก ~180 เหลือ ~25 µg/m³ แล้วสรุปว่า "ควันเจือจางต่ำกว่าเกณฑ์") */
+function plotsOutside(){
+  const r = S.result, o = S.origin;
+  if(!r || !o) return [];
+  const out = [];
+  S.plots.forEach((p, i) => {
+    if(p.on === false) return;
+    const [x, y] = toXY(plotCentroid(p), o);
+    if(Math.abs(x - r.cx) > r.R || Math.abs(y - r.cy) > r.R) out.push(i + 1);
+  });
+  return out;
+}
 function plotArea(p){
   return p.type === 'point' ? p.rai*RAI : polyArea(p.latlngs, plotCentroid(p));
 }
@@ -782,8 +796,13 @@ function renderSummary(el){
       fmt(st.areas[i],2) + ' กม²</span></div>';
   });
 
+  const outside = plotsOutside();
+
   el.innerHTML =
     trustBar() +
+    (outside.length ? '<div class="warnbox" id="outsidewarn">แปลง ' + outside.join(', ') +
+      ' อยู่นอกพื้นที่จำลอง (ขอบเขต ' + S.rangeKm + ' กม. รอบจุดกึ่งกลางของทุกแปลง) ควันจากแปลงนี้จึงถูกคิดไม่ครบ ' +
+      'ตัวเลขข้างล่าง<b>ต่ำกว่าจริง</b> — เพิ่ม “ขอบเขต” ในหัวข้อการคำนวณ หรือปิดแปลงที่อยู่ไกลแล้วจำลองทีละกลุ่ม</div>' : '') +
     '<div class="sub">' + viewLabel() + (S.view==='hour' && hrs[S.hourIndex] ? ' · ' + hrs[S.hourIndex].t.slice(11) + ' น.' : '') + '</div>' +
     '<div class="st2"><span>ค่าสูงสุดบนพื้น</span><b style="color:' + recColor(totMax) + '">' + softNum(totMax) + ' µg/m³</b></div>' +
     '<div class="st2"><span>ห่างจากกองไฟใกล้สุด</span><b>' + fmt(st.dmaxD/1000,2) + ' กม.</b></div>' +
