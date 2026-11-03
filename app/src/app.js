@@ -1336,7 +1336,7 @@ let g3 = null, g3loading = false, g3wait = false;   // g3wait = เข้า 3D 
 function view3(){
   const r = S.result, o = S.origin;
   return {
-    origin: o, result: r, hourIndex: S.hourIndex, hourKey: currentHourKey(), view: S.view,
+    origin: o, result: r, hourIndex: S.hourIndex, hourKey: currentHourKey(), view: S.view, model: S.model,
     // ใช้ DEM เฉพาะเมื่อเป็นของรอบคำนวณเดียวกัน ไม่งั้นภูมิประเทศจะเป็นของที่อื่น
     elev: (S.dem && S.dem.ok && r && S.dem.reqId === r.reqId) ? S.dem.elev : null,
     bands: BANDS, bandOf, bg: curBg(),
@@ -2004,8 +2004,24 @@ $('vHour').onclick = () => { S.view='hour'; syncView(); refresh(); };
 $('vMax').onclick  = () => { setPlaying(false); S.view='max';  syncView(); refresh(); };
 $('vDose').onclick = () => { setPlaying(false); S.view='dose'; syncView(); refresh(); };
 
+/* จอมือถือแผงสรุปกินที่ครึ่งล่างของแผนที่ — ย่อเหลือแถบแท็บได้ กดแท็บไหนก็ขยายกลับ
+   (ปุ่มพับมีแค่บนมือถือ บนเดสก์ท็อปคลาส folded ไม่มีผล) */
+function foldPanel(on){
+  $('panel').classList.toggle('folded', on);
+  $('pfold').setAttribute('aria-expanded', String(!on));
+  $('pfold').setAttribute('aria-label', on ? 'ขยายแผงสรุป' : 'ย่อแผงสรุป');
+  $('pfold').textContent = on ? '▴' : '▾';
+}
+$('pfold').onclick = () => foldPanel(!$('panel').classList.contains('folded'));
+$('d3fold').onclick = () => {
+  const open = $('d3bar').classList.toggle('open');
+  $('d3fold').setAttribute('aria-expanded', String(open));
+  $('d3fold').textContent = open ? 'ซ่อนตั้งค่า 3D ▴' : 'ตั้งค่า 3D ▾';
+};
+
 function setTab(t){
   S.tab = t;
+  foldPanel(false);
   $('tSum').setAttribute('aria-pressed', t==='sum');
   $('tRec').setAttribute('aria-pressed', t==='rec');
   $('tMet').setAttribute('aria-pressed', t==='met');
@@ -2100,11 +2116,30 @@ $('search').addEventListener('input', () => {
   }, 450);
 });
 $('search').addEventListener('blur', () => setTimeout(() => $('sres').style.display='none', 200));
+/* ข้อความชั่วคราวบนแผนที่ แทน alert() ซึ่งบล็อกทั้งหน้า และเบราว์เซอร์ในแอปแชตบางตัวไม่แสดงเลย */
+let toastTimer = null;
+function toast(html, ms = 7000){
+  const el = $('toast');
+  el.innerHTML = html; el.style.display = 'block';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.style.display = 'none'; }, ms);
+}
+$('toast').onclick = () => { $('toast').style.display = 'none'; };
+
 $('bGeoloc').onclick = () => {
-  if(!navigator.geolocation) return alert('เบราว์เซอร์นี้ไม่รองรับ');
+  if(!navigator.geolocation || !window.isSecureContext)
+    return toast('เบราว์เซอร์นี้หาตำแหน่งไม่ได้' + (window.isSecureContext ? '' : ' — ต้องเปิดเว็บผ่าน https'));
+  const b = $('bGeoloc'), label = b.textContent;
+  b.disabled = true; b.textContent = 'กำลังหา…';
+  const done = () => { b.disabled = false; b.textContent = label; };
   navigator.geolocation.getCurrentPosition(
-    p => map.setView([p.coords.latitude, p.coords.longitude], 15),
-    () => alert('เข้าถึงตำแหน่งไม่ได้ — ต้องอนุญาตสิทธิ์และเปิดผ่าน https'),
+    p => { done(); map.setView([p.coords.latitude, p.coords.longitude], 15); },
+    e => {
+      done();
+      toast(e.code === 1 ? 'ไม่ได้รับอนุญาตให้ใช้ตำแหน่ง — เปิดสิทธิ์ตำแหน่งให้เว็บนี้ในการตั้งค่าเบราว์เซอร์ แล้วกดอีกครั้ง'
+          : e.code === 3 ? 'หาตำแหน่งนานเกินไป — ลองกดอีกครั้ง หรือออกไปที่โล่งให้รับสัญญาณดีขึ้น'
+          : 'หาตำแหน่งไม่เจอ — ลองเปิด GPS หรือบริการตำแหน่งของเครื่อง');
+    },
     {enableHighAccuracy:true, timeout:9000});
 };
 

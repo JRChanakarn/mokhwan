@@ -34,7 +34,10 @@ export async function create3D(container, view) {
     stage.controls.target.set(result.cx, result.cy, 0);
     stage.camera.position.set(result.cx, result.cy - spanM * 0.9, spanM * 0.28);
 
-    if (!view.elev) notes.push('ไม่มีข้อมูลความสูงภูมิประเทศ — แสดงเป็นพื้นราบ');
+    // โหมดพื้นราบไม่ได้ดึง DEM เลยโดยตั้งใจ — ของเดิมใช้ข้อความเดียวกับตอนดึงไม่สำเร็จ อ่านแล้วเหมือนพัง
+    if (!view.elev) notes.push(view.model === 'gauss'
+      ? 'แบบจำลองพื้นราบไม่ใช้ความสูงภูมิประเทศ — เลือก “ตามภูมิประเทศ” เพื่อดูภูเขา'
+      : 'ไม่มีข้อมูลความสูงภูมิประเทศ — แสดงเป็นพื้นราบ');
 
     markers = createMarkers({ res: result });
     markers.setTerrain(terrain.raw, view.opts.exag);

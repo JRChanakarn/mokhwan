@@ -162,8 +162,11 @@
   <div id="map3dgl"></div>
   <div id="m3diag"></div>
   <div id="tilewarn"></div>
+  <div id="toast" role="status"></div>
 
   <div id="d3bar">
+    <button class="btn" id="d3fold" aria-expanded="false" aria-controls="d3body">ตั้งค่า 3D ▾</button>
+    <div id="d3body">
     <div class="seg" id="r3seg" role="group" aria-label="ตัววาด 3 มิติ" style="margin-bottom:7px">
       <button id="r3three" aria-pressed="true">three.js</button>
       <button id="r3ml" aria-pressed="false">แบบเดิม</button>
@@ -188,6 +191,7 @@
     <div id="note3d" style="color:var(--faint);font-size:10.8px;margin-top:7px;line-height:1.45;display:none">
       ความหนาของควันในแนวดิ่งเป็นการประมาณ ไม่ใช่ผลการคำนวณ — ค่าที่ผิวดินเท่านั้นที่เป็นของจริง
       ถ้าอากาศเสถียรมากจนควันลอยไม่แตะพื้น ภาพอาจไม่แสดงควันทั้งที่ตัวเลขในตารางยังถูก</div>
+    </div>
   </div>
 
   <div id="toolsLeft">
@@ -217,6 +221,7 @@
       <button id="tSum" aria-pressed="true">สรุป</button>
       <button id="tRec" aria-pressed="false">จุดอ่อนไหว</button>
       <button id="tMet" aria-pressed="false">รายชั่วโมง</button>
+      <button id="pfold" aria-expanded="true" aria-controls="pbody" aria-label="ย่อแผงสรุป">▾</button>
     </div>
     <div id="pbody"></div>
   </div>
