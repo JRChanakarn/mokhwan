@@ -10,6 +10,7 @@
  *
  * ห่วงวาดต้อง `stop()` ตอนสลับกลับ 2D ไม่งั้นกิน GPU ค้างทั้งที่ไม่มีใครดู
  */
+import { tr } from '../../i18n.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { skyFor, sunDirection, isDaylight } from '../sky-palette.js';
@@ -25,7 +26,7 @@ export function createScene(container, { origin, hourKey, spanM }) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   if (!renderer.capabilities.isWebGL2) {
     renderer.dispose();
-    throw new Error('การ์ดจอไม่รองรับ WebGL2 ซึ่งจำเป็นกับการวาดควันแบบใหม่ — กดปุ่ม "แบบเดิม" เพื่อใช้ตัวสำรอง');
+    throw new Error(tr("This graphics card doesn't support WebGL2, which the new smoke renderer needs. Press \"Classic\" to use the fallback renderer.", 'การ์ดจอไม่รองรับ WebGL2 ซึ่งจำเป็นกับการวาดควันแบบใหม่ — กดปุ่ม "แบบเดิม" เพื่อใช้ตัวสำรอง'));
   }
   /* **pixelRatio 1 เสมอ ไม่ตาม devicePixelRatio** — ตั้งใจ ไม่ใช่ลืม
      ต้นทุนของ raymarch เป็นสัดส่วนตรงกับจำนวนพิกเซลจริง บนจอ retina ที่ ratio 2

@@ -4,10 +4,25 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mokhwan Studio — จำลองการฟุ้งกระจายควันจากการเผา</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<script>
+  // ภาษาอังกฤษ: ซ่อนหน้าไว้จนกว่า app.js แปลข้อความคงที่เสร็จ ไม่ให้เห็นภาษาไทยแวบก่อน
+  // (กติกาเดียวกับ i18n.js — ?lang= ชนะ แล้วจึงค่าที่จำไว้ · ถ้าสคริปต์พังก็เปิดเองใน 3 วินาที)
+  (function () {
+    var asked = new URLSearchParams(location.search).get('lang'), stored = null;
+    try { stored = localStorage.getItem('mokhwan-lang'); } catch (e) {}
+    if ((asked || stored) === 'en' && asked !== 'th') {
+      document.documentElement.lang = 'en';
+      document.documentElement.classList.add('i18n-wait');
+      setTimeout(function () { document.documentElement.classList.remove('i18n-wait'); }, 3000);
+    }
+  })();
+</script>
+<style>html.i18n-wait body{visibility:hidden}</style>
 
 <div id="app">
 <aside id="rail">
   <div id="brand">
+    <button class="btn" id="bLang"></button>
     <h1>Mokhwan Studio</h1>
     <p>จำลองการฟุ้งกระจาย PM2.5 จากการเผาในที่โล่ง
        <span id="ver" style="display:inline-block;margin-left:4px;padding:1px 6px;border:1px solid var(--line);border-radius:3px;font-size:10.5px;color:var(--faint)"></span></p>

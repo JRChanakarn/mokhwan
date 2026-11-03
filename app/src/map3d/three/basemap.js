@@ -14,6 +14,7 @@
  * WebGL ปฏิเสธการอัป texture จาก canvas ที่ปนเปื้อน ถ้าลืมจะได้ภูมิประเทศสีดำสนิท
  * โดยไม่มี error ขึ้นให้เห็นเลย
  */
+import { tr } from '../../i18n.js';
 import { TILE, chooseZoom, tileRange, boundsAround } from '../../services/dem-math.js';
 
 export const ESRI_IMAGERY =
@@ -31,13 +32,13 @@ export const browserDeps = {
   loadImage: url => new Promise((res, rej) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    const t = setTimeout(() => rej(new Error('หมดเวลา')), TIMEOUT_MS);
+    const t = setTimeout(() => rej(new Error(tr("Timed out", 'หมดเวลา'))), TIMEOUT_MS);
     img.onload = () => {
       clearTimeout(t);
       res({ width: img.naturalWidth, height: img.naturalHeight,
             draw: (ctx, x, y) => ctx.drawImage(img, x, y) });
     };
-    img.onerror = () => { clearTimeout(t); rej(new Error('โหลดภาพไม่ได้')); };
+    img.onerror = () => { clearTimeout(t); rej(new Error(tr("Could not load image", 'โหลดภาพไม่ได้'))); };
     img.src = url;
   }),
   makeCanvas: (w, h) => {
@@ -84,11 +85,11 @@ export async function loadImageryMosaic(origin, spanM, deps = browserDeps) {
 
     if (!got) {
       return { ok: false,
-               reason: 'โหลดภาพดาวเทียมไม่ได้เลยสักไทล์ — จะแสดงภูมิประเทศเป็นสีเรียบ' };
+               reason: tr("Could not load a single satellite tile. The terrain will be shown in a plain color.", 'โหลดภาพดาวเทียมไม่ได้เลยสักไทล์ — จะแสดงภูมิประเทศเป็นสีเรียบ') };
     }
     return { ok: true, canvas, bounds: mosaicBounds(range), zoom: z, tiles: cols * rows, got };
   } catch (e) {
     return { ok: false,
-             reason: 'โหลดภาพดาวเทียมไม่ได้ — ' + (e && e.message ? e.message : 'ไม่ทราบสาเหตุ') };
+             reason: tr("Could not load satellite imagery: ", 'โหลดภาพดาวเทียมไม่ได้ — ') + (e && e.message ? e.message : tr("unknown reason", 'ไม่ทราบสาเหตุ')) };
   }
 }

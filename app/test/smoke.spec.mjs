@@ -840,6 +840,65 @@ check(/แบบจำลองพื้นราบไม่ใช้ควา�
 await page.click('#b2d');
 await page.setViewportSize({ width: 1280, height: 720 });
 
+/* ── ภาษาอังกฤษ ─────────────────────────────────────────────────────── */
+
+// โหมดอังกฤษต้องไม่มีตัวอักษรไทยหลุดบนจอ — นับทุก text node (รวมที่ซ่อนอยู่) กับ placeholder/
+// title/aria-label ยกเว้นปุ่มสลับภาษาที่ตั้งใจเขียนว่า "ไทย" · ไล่หลายสถานะ เพราะข้อความส่วนใหญ่
+// ถูกสร้างตอนมีผลคำนวณ ไม่ใช่ตอนบูต
+const enUrl = new URL(APP_URL);
+enUrl.searchParams.set('lang', 'en');
+await page.goto(enUrl.href, { waitUntil: 'networkidle', timeout: 30_000 });
+const thaiLeft = () => page.evaluate(() => {
+  const TH = /[฀-๿]/, out = [];
+  const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let n = w.nextNode(); n; n = w.nextNode()) {
+    const el = n.parentElement;
+    if (TH.test(n.nodeValue) && !el.closest('#bLang, script, style')) out.push((el.id || el.tagName) + ': ' + n.nodeValue.trim().slice(0, 40));
+  }
+  for (const el of document.querySelectorAll('[placeholder], [title], [aria-label]'))
+    for (const a of ['placeholder', 'title', 'aria-label'])
+      if (el.id !== 'bLang' && TH.test(el.getAttribute(a) ?? '')) out.push('@' + a + ' ' + (el.id || el.tagName));
+  if (TH.test(document.title)) out.push('<title>');
+  return out;
+});
+const leaks = new Set();
+const sweep = async () => (await thaiLeft()).forEach(x => leaks.add(x));
+const settle = async b => page.waitForFunction(b => window.__MOKHWAN__.S.result && window.__MOKHWAN__.S.result.reqId > b &&
+                                                   !window.__MOKHWAN__.S.computing, b, { timeout: 45_000 });
+check(await page.evaluate(() => document.documentElement.lang === 'en' && document.getElementById('bLang').textContent === 'ไทย'),
+      '?lang=en เปิดหน้าเป็นภาษาอังกฤษ และปุ่มสลับเขียนว่า "ไทย"');
+await sweep();
+await page.evaluate(() => { const M = window.__MOKHWAN__; M.addPlot({ type: 'point', latlng: M.map.getCenter(), rai: 20 }); });
+await settle(-1);
+await sweep();
+for (const id of ['#tRec', '#tMet', '#tSum', '#vMax', '#vDose', '#vHour', '#mPoly', '#mPoint']) { await page.click(id); await sweep(); }
+let reqEn = await page.evaluate(() => window.__MOKHWAN__.S.result.reqId);
+await page.click('#mPuff');
+await settle(reqEn);
+await sweep();
+await page.click('#b3d');
+await page.waitForFunction(() => document.getElementById('m3diag').style.display === 'none' ||
+                                 !/spin/.test(document.getElementById('m3diag').innerHTML), null, { timeout: 30_000 });
+await sweep();
+await page.click('#b2d');
+reqEn = await page.evaluate(() => {
+  const M = window.__MOKHWAN__, c = M.map.getCenter();
+  c.lat += 0.9;
+  M.addPlot({ type: 'point', latlng: c, rai: 20 });
+  return M.S.result.reqId;
+});
+await settle(reqEn);
+await sweep();
+check(leaks.size === 0, `โหมดอังกฤษไม่มีตัวอักษรไทยหลุดบนจอ${leaks.size ? ' — ' + [...leaks].slice(0, 6).join(' | ') : ''}`);
+
+// สลับกลับเป็นไทยต้องโหลดหน้าใหม่โดยไม่เสียแปลงที่วางไว้ และจำภาษาที่เลือก
+const plotsEn = await page.evaluate(() => window.__MOKHWAN__.S.plots.length);
+await Promise.all([page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30_000 }), page.click('#bLang')]);
+const back = await page.evaluate(() => ({ lang: document.documentElement.lang, plots: window.__MOKHWAN__.S.plots.length,
+                                          stored: localStorage.getItem('mokhwan-lang'), h2: document.querySelector('#rbody h2').textContent }));
+check(back.lang === 'th' && back.stored === 'th' && back.plots === plotsEn && back.h2 === 'แปลงที่จะเผา',
+      `ปุ่มสลับกลับเป็นไทย จำภาษาไว้ และแปลง ${plotsEn} แปลงยังอยู่ (ได้ ${back.lang} · ${back.stored} · ${back.plots} แปลง)`);
+
 // host ภายนอกที่แอปคุยด้วยต้องเป็นแค่ผู้ให้บริการแผนที่พื้นฐาน
 // ห้ามมี CDN ของไลบรารีหลุดกลับมา ซึ่งเป็นสิ่งที่งานรื้อโครงนี้กำจัดไป
 const LIB_CDNS = ['cdnjs.cloudflare.com', 'unpkg.com', 'cdn.jsdelivr.net'];
