@@ -793,6 +793,53 @@ const outWarn = await page.evaluate(() => document.getElementById('outsidewarn')
 check(/แปลง [\d, ]+ อยู่นอกพื้นที่จำลอง/.test(outWarn),
       `เตือนเมื่อแปลงอยู่นอกพื้นที่จำลอง (ได้ "${outWarn.slice(0, 48)}")`);
 
+// "ตำแหน่งฉัน" ต้องไม่เด้ง alert() — ของเดิมบล็อกทั้งหน้า และเบราว์เซอร์ในแอปแชตบางตัวไม่แสดงเลย
+// ปฏิเสธสิทธิ์แล้วต้องได้ข้อความในแอปที่บอกวิธีแก้ และปุ่มต้องกลับมากดได้
+let dialogs = 0;
+page.on('dialog', d => { dialogs++; d.dismiss(); });
+await page.evaluate(() => {
+  navigator.geolocation.getCurrentPosition = (ok, err) => setTimeout(() => err({ code: 1 }), 20);
+});
+await page.click('#bGeoloc');
+await page.waitForFunction(() => document.getElementById('toast').style.display === 'block', null, { timeout: 5_000 });
+const geo = await page.evaluate(() => ({ txt: document.getElementById('toast').textContent,
+                                         btn: document.getElementById('bGeoloc').textContent }));
+check(dialogs === 0 && /ไม่ได้รับอนุญาต/.test(geo.txt) && geo.btn === 'ตำแหน่งฉัน',
+      `"ตำแหน่งฉัน" ถูกปฏิเสธสิทธิ์แล้วบอกในแอป ไม่ใช่ alert (dialog ${dialogs} · "${geo.txt.slice(0, 32)}…")`);
+
+/* ── จอมือถือ ───────────────────────────────────────────────────────── */
+
+await page.setViewportSize({ width: 390, height: 844 });
+
+// แผงสรุปกินที่ครึ่งล่างของแผนที่ — ย่อเหลือแถบแท็บได้ กดแท็บแล้วขยายกลับ
+await page.click('#pfold');
+const pFolded = await page.evaluate(() => getComputedStyle(document.getElementById('pbody')).display);
+await page.click('#tSum');
+const pOpen = await page.evaluate(() => getComputedStyle(document.getElementById('pbody')).display);
+check(pFolded === 'none' && pOpen !== 'none', `มือถือย่อแผงสรุปได้ และกดแท็บแล้วขยายกลับ (${pFolded} → ${pOpen})`);
+
+// โหมดพื้นราบเข้า 3D ต้องบอกว่าตั้งใจไม่ใช้ความสูง — ของเดิมใช้ข้อความเดียวกับตอนดึง DEM
+// ไม่สำเร็จ อ่านแล้วเหมือนพัง · และบนมือถือแผงตั้งค่า 3D ต้องพับไว้ก่อน ไม่บังแผงสรุป
+// ผลของ gaussian ไม่มีฟิลด์ model (มีแต่ของ puff) จึงรอจาก reqId ที่ขยับแทน
+const reqGauss = await page.evaluate(() => window.__MOKHWAN__.S.result.reqId);
+await page.click('#mGauss');
+await page.waitForFunction(b => window.__MOKHWAN__.S.result.reqId > b && !window.__MOKHWAN__.S.computing,
+                           reqGauss, { timeout: 45_000 });
+await page.click('#b3d');
+const d3folded = await page.evaluate(() => getComputedStyle(document.getElementById('d3body')).display);
+await page.click('#d3fold');
+const d3open = await page.evaluate(() => getComputedStyle(document.getElementById('d3body')).display);
+check(d3folded === 'none' && d3open !== 'none', `มือถือพับแผงตั้งค่า 3D ไว้ก่อน กดแล้วกางได้ (${d3folded} → ${d3open})`);
+// เคสก่อนหน้าทิ้งตัววาดไว้ที่ "แบบเดิม" — ข้อความนี้เป็นของตัววาด three
+if (await page.evaluate(() => window.__MOKHWAN__.S.renderer3 !== 'three')) await page.click('#r3three');
+await page.waitForFunction(() => /แบบจำลองพื้นราบไม่ใช้/.test(document.getElementById('m3diag').textContent),
+                           null, { timeout: 30_000 }).catch(() => {});
+const flat3d = await page.evaluate(() => document.getElementById('m3diag').textContent);
+check(/แบบจำลองพื้นราบไม่ใช้ความสูง/.test(flat3d) && !/ไม่มีข้อมูล/.test(flat3d),
+      `3D ในโหมดพื้นราบบอกว่าตั้งใจไม่ใช้ความสูง (ได้ "${flat3d.slice(0, 40)}")`);
+await page.click('#b2d');
+await page.setViewportSize({ width: 1280, height: 720 });
+
 // host ภายนอกที่แอปคุยด้วยต้องเป็นแค่ผู้ให้บริการแผนที่พื้นฐาน
 // ห้ามมี CDN ของไลบรารีหลุดกลับมา ซึ่งเป็นสิ่งที่งานรื้อโครงนี้กำจัดไป
 const LIB_CDNS = ['cdnjs.cloudflare.com', 'unpkg.com', 'cdn.jsdelivr.net'];
