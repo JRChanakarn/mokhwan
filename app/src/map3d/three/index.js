@@ -9,6 +9,7 @@
  *
  * `view` เป็นก้อนข้อมูลธรรมดา ไม่ใช่ `S` ทั้งก้อน — อ่านออกทันทีว่าพึ่งอะไรบ้าง
  */
+import { tr } from '../../i18n.js';
 import * as THREE from 'three';
 import { createScene } from './scene.js';
 import { buildTerrain } from './terrain.js';
@@ -36,8 +37,8 @@ export async function create3D(container, view) {
 
     // โหมดพื้นราบไม่ได้ดึง DEM เลยโดยตั้งใจ — ของเดิมใช้ข้อความเดียวกับตอนดึงไม่สำเร็จ อ่านแล้วเหมือนพัง
     if (!view.elev) notes.push(view.model === 'gauss'
-      ? 'แบบจำลองพื้นราบไม่ใช้ความสูงภูมิประเทศ — เลือก “ตามภูมิประเทศ” เพื่อดูภูเขา'
-      : 'ไม่มีข้อมูลความสูงภูมิประเทศ — แสดงเป็นพื้นราบ');
+      ? tr("The flat-ground model doesn't use terrain height. Choose “Follow terrain” to see the mountains.", 'แบบจำลองพื้นราบไม่ใช้ความสูงภูมิประเทศ — เลือก “ตามภูมิประเทศ” เพื่อดูภูเขา')
+      : tr("No terrain height data. Showing flat ground.", 'ไม่มีข้อมูลความสูงภูมิประเทศ — แสดงเป็นพื้นราบ'));
 
     markers = createMarkers({ res: result });
     markers.setTerrain(terrain.raw, view.opts.exag);
@@ -64,12 +65,12 @@ export async function create3D(container, view) {
       mosaic = { tex, bounds: mos.bounds };
       applyDomainUv(terrain.mesh.geometry, result, origin, mos.bounds);
       terrain.setTexture(tex);
-      if (mos.got < mos.tiles) notes.push(`ภาพดาวเทียมโหลดได้ ${mos.got}/${mos.tiles} ไทล์ — บางส่วนจะโหว่`);
+      if (mos.got < mos.tiles) notes.push(tr(`Loaded ${mos.got}/${mos.tiles} satellite tiles. Some parts will have gaps.`, `ภาพดาวเทียมโหลดได้ ${mos.got}/${mos.tiles} ไทล์ — บางส่วนจะโหว่`));
     } else {
       notes.push(mos.reason);
     }
   } else {
-    notes.push('ยังไม่มีผลการคำนวณ — กดคำนวณก่อนจึงจะเห็นภูมิประเทศและควัน');
+    notes.push(tr("No results yet. Run a calculation first to see the terrain and smoke.", 'ยังไม่มีผลการคำนวณ — กดคำนวณก่อนจึงจะเห็นภูมิประเทศและควัน'));
   }
 
   /* ย่อให้ได้ราว 160 บล็อกต่อด้านไม่ว่ากริดจะละเอียดแค่ไหน ขนาด texture จึงไม่ผูกกับ
@@ -89,8 +90,8 @@ export async function create3D(container, view) {
     if (!volume || !v.result) return null;
     if (v.view && v.view !== 'hour') {
       volume.mesh.visible = false;
-      return 'มุมมองนี้รวมหลายชั่วโมงที่ลมพัดคนละทิศ จึงแสดงได้แค่ชั้นทาบพื้น — ' +
-             'กด “รายชั่วโมง” เพื่อดูก้อนควันสามมิติ';
+      return tr("This view combines hours with wind from different directions, so only the ground layer can be shown. ", 'มุมมองนี้รวมหลายชั่วโมงที่ลมพัดคนละทิศ จึงแสดงได้แค่ชั้นทาบพื้น — ') +
+             tr("Press “Hourly” to see the 3D smoke.", 'กด “รายชั่วโมง” เพื่อดูก้อนควันสามมิติ');
     }
     const r = v.result;
     const g = r.grids[v.hourIndex] || r.grids[0];
@@ -150,7 +151,7 @@ export async function create3D(container, view) {
 
   stage.onQualityDrop(q => {
     if (volume) volume.setSteps(q.steps);
-    notes.push('เครื่องวาดไม่ทัน จึงลดความละเอียดลงเอง — กด "แบบเดิม" ถ้ายังหืด');
+    notes.push(tr("The renderer couldn't keep up, so it lowered the resolution. Press \"Classic\" if it is still slow.", 'เครื่องวาดไม่ทัน จึงลดความละเอียดลงเอง — กด "แบบเดิม" ถ้ายังหืด'));
   });
 
   /* ช่องทางตรวจสอบเวลาพัฒนาและให้ smoke test เข้าถึงฉากได้

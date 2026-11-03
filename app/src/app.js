@@ -1,5 +1,7 @@
 import './styles.css';
 import 'leaflet/dist/leaflet.css';
+import { lang, tr, setLang, translateDom } from './i18n.js';
+import { HTML_EN } from './i18n-html.js';
 import L from 'leaflet';
 import * as d3 from 'd3';
 import { run as engineRunSync, VERSION as ENGINE_VERSION } from 'mokhwan-engine';
@@ -19,33 +21,43 @@ import { attachWindField } from './services/wind-grid.js';
 const $ = id => document.getElementById(id);
 const RAI = 1600;
 
+/* ภาษา — แปลข้อความคงที่ใน index.html ก่อนโค้ดส่วนอื่นอ่านหรือเขียน DOM
+   ข้อความที่สร้างจากโค้ดใช้ tr() ตรงจุดนั้นเอง (ดู i18n.js) */
+if(lang === 'en'){
+  translateDom(document.body, HTML_EN);
+  document.title = HTML_EN[document.title.replace(/\s+/g, ' ').trim()] ?? document.title;
+}
+document.documentElement.classList.remove('i18n-wait');
+$('bLang').textContent = lang === 'en' ? 'ไทย' : 'EN';
+$('bLang').setAttribute('aria-label', lang === 'en' ? 'Switch to Thai' : 'เปลี่ยนเป็นภาษาอังกฤษ');
+
 /* ---------------- reference data ---------------- */
 const FUELS = {
-  rice:    {n:'ฟางข้าว / ตอซังข้าว',    load:0.60, ef:9.5,  cc:0.89},
-  maize:   {n:'ต้นและซังข้าวโพด',        load:0.65, ef:8.0,  cc:0.85},
-  cane:    {n:'ใบอ้อย',                  load:1.20, ef:4.5,  cc:0.90},
-  cassava: {n:'เศษมันสำปะหลัง',          load:0.55, ef:8.5,  cc:0.82},
-  forestD: {n:'ป่าเต็งรัง (ใบไม้แห้ง)',   load:0.50, ef:12.0, cc:0.85},
-  forestM: {n:'ป่าเบญจพรรณ',             load:0.80, ef:11.0, cc:0.80},
-  brush:   {n:'วัชพืช / ปรับพื้นที่',      load:0.70, ef:9.0,  cc:0.85},
-  waste:   {n:'ขยะและเศษวัสดุปนเปื้อน',   load:1.00, ef:10.0, cc:0.75},
+  rice:    {n:tr("Rice straw / stubble", 'ฟางข้าว / ตอซังข้าว'),    load:0.60, ef:9.5,  cc:0.89},
+  maize:   {n:tr("Corn stalks and cobs", 'ต้นและซังข้าวโพด'),        load:0.65, ef:8.0,  cc:0.85},
+  cane:    {n:tr("Sugarcane leaves", 'ใบอ้อย'),                  load:1.20, ef:4.5,  cc:0.90},
+  cassava: {n:tr("Cassava residue", 'เศษมันสำปะหลัง'),          load:0.55, ef:8.5,  cc:0.82},
+  forestD: {n:tr("Dry dipterocarp forest (leaf litter)", 'ป่าเต็งรัง (ใบไม้แห้ง)'),   load:0.50, ef:12.0, cc:0.85},
+  forestM: {n:tr("Mixed deciduous forest", 'ป่าเบญจพรรณ'),             load:0.80, ef:11.0, cc:0.80},
+  brush:   {n:tr("Weeds / land clearing", 'วัชพืช / ปรับพื้นที่'),      load:0.70, ef:9.0,  cc:0.85},
+  waste:   {n:tr("Trash and contaminated debris", 'ขยะและเศษวัสดุปนเปื้อน'),   load:1.00, ef:10.0, cc:0.75},
 };
-const STAB = {A:'A · ไม่เสถียรมาก', B:'B · ไม่เสถียรปานกลาง', C:'C · ไม่เสถียรเล็กน้อย',
-              D:'D · เป็นกลาง', E:'E · เสถียรเล็กน้อย', F:'F · เสถียรมาก'};
+const STAB = {A:tr("A · very unstable", 'A · ไม่เสถียรมาก'), B:tr("B · moderately unstable", 'B · ไม่เสถียรปานกลาง'), C:tr("C · slightly unstable", 'C · ไม่เสถียรเล็กน้อย'),
+              D:tr("D · neutral", 'D · เป็นกลาง'), E:tr("E · slightly stable", 'E · เสถียรเล็กน้อย'), F:tr("F · very stable", 'F · เสถียรมาก')};
 const BANDS = [
-  {lo:15,   hi:25,   c:'#4aa3d8', n:'ดี'},
-  {lo:25,   hi:37.5, c:'#5cb85c', n:'ปานกลาง'},
-  {lo:37.5, hi:75,   c:'#e8c33a', n:'เริ่มมีผลต่อสุขภาพ'},
-  {lo:75,   hi:150,  c:'#ef8a3c', n:'มีผลต่อสุขภาพ'},
-  {lo:150,  hi:350,  c:'#e04b4b', n:'อันตราย'},
-  {lo:350,  hi:null, c:'#8f4bc9', n:'อันตรายมาก'},
+  {lo:15,   hi:25,   c:'#4aa3d8', n:tr("Good", 'ดี')},
+  {lo:25,   hi:37.5, c:'#5cb85c', n:tr("Moderate", 'ปานกลาง')},
+  {lo:37.5, hi:75,   c:'#e8c33a', n:tr("Unhealthy for sensitive groups", 'เริ่มมีผลต่อสุขภาพ')},
+  {lo:75,   hi:150,  c:'#ef8a3c', n:tr("Unhealthy", 'มีผลต่อสุขภาพ')},
+  {lo:150,  hi:350,  c:'#e04b4b', n:tr("Very unhealthy", 'อันตราย')},
+  {lo:350,  hi:null, c:'#8f4bc9', n:tr("Hazardous", 'อันตรายมาก')},
 ];
 const BLO = BANDS.map(b => b.lo);
 const REC_ICON = {school:'🏫', kindergarten:'🧸', hospital:'🏥', clinic:'⚕️', nursing_home:'🧓',
                   village:'🏘️', hamlet:'🏘️', town:'🏙️', city:'🏙️', suburb:'🏘️', manual:'📍'};
-const REC_TH = {school:'โรงเรียน', kindergarten:'ศูนย์เด็กเล็ก', hospital:'โรงพยาบาล', clinic:'คลินิก/รพ.สต.',
-                nursing_home:'สถานดูแลผู้สูงอายุ', village:'หมู่บ้าน', hamlet:'ชุมชนเล็ก', town:'เมือง',
-                city:'เมืองใหญ่', suburb:'ย่านชุมชน', manual:'จุดที่ปักเอง'};
+const REC_TH = {school:tr("School", 'โรงเรียน'), kindergarten:tr("Childcare center", 'ศูนย์เด็กเล็ก'), hospital:tr("Hospital", 'โรงพยาบาล'), clinic:tr("Clinic / health center", 'คลินิก/รพ.สต.'),
+                nursing_home:tr("Elderly care home", 'สถานดูแลผู้สูงอายุ'), village:tr("Village", 'หมู่บ้าน'), hamlet:tr("Hamlet", 'ชุมชนเล็ก'), town:tr("Town", 'เมือง'),
+                city:tr("City", 'เมืองใหญ่'), suburb:tr("Neighborhood", 'ย่านชุมชน'), manual:tr("Pinned by you", 'จุดที่ปักเอง')};
 
 /* ---------------- state ---------------- */
 const S = {
@@ -84,7 +96,7 @@ const mLon = lat => 111320*Math.cos(lat*Math.PI/180);
 const toXY = (ll,o) => [ (ll.lng-o.lng)*mLon(o.lat), (ll.lat-o.lat)*M_LAT ];
 const toLL = (x,y,o) => L.latLng(o.lat + y/M_LAT, o.lng + x/mLon(o.lat));
 const fmt = (v,d=1) => (isFinite(v)?Number(v):0).toLocaleString('th-TH',{minimumFractionDigits:d, maximumFractionDigits:d});
-const DIRS = ['เหนือ','ตอ.เฉียงเหนือ','ตะวันออก','ตอ.เฉียงใต้','ใต้','ตต.เฉียงใต้','ตะวันตก','ตต.เฉียงเหนือ'];
+const DIRS = [tr("N", 'เหนือ'),tr("NE", 'ตอ.เฉียงเหนือ'),tr("E", 'ตะวันออก'),tr("SE", 'ตอ.เฉียงใต้'),tr("S", 'ใต้'),tr("SW", 'ตต.เฉียงใต้'),tr("W", 'ตะวันตก'),tr("NW", 'ตต.เฉียงเหนือ')];
 const compass = d => DIRS[Math.round((((d%360)+360)%360)/45)%8];
 
 function polyArea(pts, o){
@@ -132,17 +144,17 @@ const map = L.map('map',{zoomControl:true, preferCanvas:true}).setView([18.7883,
 L.control.scale({imperial:false, position:'bottomright'}).addTo(map);
 
 const BASEMAPS = [
-  {n:'พื้นเทาเข้ม', url:'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+  {n:tr("Dark gray", 'พื้นเทาเข้ม'), url:'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
    max:16, over:18, attr:'&copy; Esri',
    ref:'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}'},
-  {n:'แผนที่ถนน OSM', url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png', max:19, attr:'&copy; OpenStreetMap', dim:true},
-  {n:'ภาพดาวเทียม', url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  {n:tr("OSM streets", 'แผนที่ถนน OSM'), url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png', max:19, attr:'&copy; OpenStreetMap', dim:true},
+  {n:tr("Satellite", 'ภาพดาวเทียม'), url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
    max:19, attr:'&copy; Esri, Maxar',
    ref:'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'},
-  {n:'พื้นเทาอ่อน', url:'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+  {n:tr("Light gray", 'พื้นเทาอ่อน'), url:'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
    max:16, over:18, attr:'&copy; Esri',
    ref:'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}'},
-  {n:'ภูมิประเทศ', url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', sub:'abc', max:17,
+  {n:tr("Terrain", 'ภูมิประเทศ'), url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', sub:'abc', max:17,
    attr:'&copy; OpenTopoMap (CC-BY-SA)', dim:true},
 ];
 let baseIdx = 0, baseL = null, labelL = null, probe = null, tried = 0;
@@ -168,7 +180,7 @@ function nextBase(){
   tried++; setBase((baseIdx+1) % BASEMAPS.length);
 }
 function showTileWarn(){
-  $('tilewarn').innerHTML = 'ตัวพรีวิวบล็อกภาพแผนที่ — ดาวน์โหลดไฟล์ไปเปิดในเบราว์เซอร์ปกติจะขึ้นครบ การคำนวณยังทำงานอยู่';
+  $('tilewarn').innerHTML = tr("This preview blocks map images. Download the file and open it in a normal browser to see them. The simulation still works.", 'ตัวพรีวิวบล็อกภาพแผนที่ — ดาวน์โหลดไฟล์ไปเปิดในเบราว์เซอร์ปกติจะขึ้นครบ การคำนวณยังทำงานอยู่');
   $('tilewarn').style.display = 'block';
 }
 
@@ -204,8 +216,8 @@ if(worker){
     worker = null;
     const stuck = [...pending.values()];
     pending.clear();
-    $('netnote').innerHTML = '<div class="warnbox">เวิร์กเกอร์คำนวณหยุดทำงาน ' +
-      'จึงคำนวณบนเธรดหลักแทน — ผลเหมือนเดิมแต่หน้าจอจะหน่วงระหว่างคำนวณ</div>';
+    $('netnote').innerHTML = tr("<div class=\"warnbox\">The calculation worker stopped, ", '<div class="warnbox">เวิร์กเกอร์คำนวณหยุดทำงาน ') +
+      tr("so the simulation now runs on the main thread. Results are the same, but the page lags while it calculates.</div>", 'จึงคำนวณบนเธรดหลักแทน — ผลเหมือนเดิมแต่หน้าจอจะหน่วงระหว่างคำนวณ</div>');
     for(const p of stuck){
       try{ p.resolve(engineRunSync(p.payload)); }
       catch(e){ p.resolve({reqId: p.payload.reqId, error: e && e.message}); }
@@ -247,8 +259,8 @@ function pasquill(ws, srad, isDay, cloudPct){
 
 async function fetchWeather(){
   const c = fireCentroid();
-  if(!c){ setWxStatus('วางแปลงเผาบนแผนที่ก่อน จึงจะดึงพยากรณ์ของจุดนั้นได้', true); return; }
-  setWxStatus('<span class="spin"></span> กำลังดึงพยากรณ์…');
+  if(!c){ setWxStatus(tr("Place a burn plot on the map first, then the forecast for that spot can be fetched", 'วางแปลงเผาบนแผนที่ก่อน จึงจะดึงพยากรณ์ของจุดนั้นได้'), true); return; }
+  setWxStatus(tr("<span class=\"spin\"></span> Fetching the forecast…", '<span class="spin"></span> กำลังดึงพยากรณ์…'));
   const params = new URLSearchParams({
     latitude: c.lat.toFixed(4), longitude: c.lng.toFixed(4),
     hourly: 'temperature_2m,relative_humidity_2m,precipitation,cloud_cover,wind_speed_10m,wind_direction_10m,boundary_layer_height,shortwave_radiation,is_day',
@@ -295,16 +307,16 @@ async function fetchWeather(){
         if(Object.keys(ser).length){
           S.bgSeries = ser;
           if(!S.bgAuto){ S.bgAuto = true; $('bgAuto').checked = true; }
-          aqNote = ' · ได้ค่าพื้นหลัง PM2.5 รายชั่วโมงมาด้วย';
+          aqNote = tr(" · hourly background PM2.5 included", ' · ได้ค่าพื้นหลัง PM2.5 รายชั่วโมงมาด้วย');
         }
       }
     }catch(e){ /* ค่าพื้นหลังเป็นของเสริม ไม่มีก็ใช้ค่าที่กรอกเอง */ }
 
-    setWxStatus('ได้ข้อมูลแล้ว ย้อนหลัง 2 วันถึงอีก 7 วันข้างหน้า' + aqNote);
+    setWxStatus(tr("Loaded, from 2 days ago to 7 days ahead", 'ได้ข้อมูลแล้ว ย้อนหลัง 2 วันถึงอีก 7 วันข้างหน้า') + aqNote);
     schedule();
   }catch(e){
     S.wx = null; S.wxErr = String(e.message || e);
-    setWxStatus('ดึงพยากรณ์ไม่ได้ (' + S.wxErr + ') — สลับไปโหมดกำหนดเองแล้ว ถ้าเปิดไฟล์ในเบราว์เซอร์ปกติมักใช้ได้', true);
+    setWxStatus(tr("Could not fetch the forecast (", 'ดึงพยากรณ์ไม่ได้ (') + S.wxErr + tr("). Switched to manual weather. Opening the file in a normal browser usually fixes this.", ') — สลับไปโหมดกำหนดเองแล้ว ถ้าเปิดไฟล์ในเบราว์เซอร์ปกติมักใช้ได้'), true);
     setWxMode('man');
   }
 }
@@ -425,7 +437,7 @@ async function runSim(){
         S.windInfo = {ok:true, ...attachWindField(payload.hours, windGrid, payload.grid, origin)};
       }catch(e){
         if(payload.reqId !== reqSeq) return;
-        S.windInfo = {ok:false, reason: netFail('สนามลม Open-Meteo', e)};
+        S.windInfo = {ok:false, reason: netFail(tr("the Open-Meteo wind field", 'สนามลม Open-Meteo'), e)};
       }
     }else S.windInfo = null;
   }else{
@@ -623,7 +635,7 @@ function redrawPlots(){
 }
 function renderPlotList(){
   const el = $('plots');
-  if(!S.plots.length){ el.innerHTML = '<div class="empty">ยังไม่มีแปลง — เลือกโหมดด้านล่างแล้วคลิกบนแผนที่</div>'; $('totarea').textContent=''; return; }
+  if(!S.plots.length){ el.innerHTML = tr("<div class=\"empty\">No plots yet. Pick a mode below, then click on the map.</div>", '<div class="empty">ยังไม่มีแปลง — เลือกโหมดด้านล่างแล้วคลิกบนแผนที่</div>'); $('totarea').textContent=''; return; }
   el.innerHTML = '';
   let tot = 0;
   S.plots.forEach((p,i) => {
@@ -631,12 +643,12 @@ function renderPlotList(){
     const d = document.createElement('div');
     d.className = 'plot' + (p.id===S.sel?' sel':'') + (p.on===false?' off':'');
     d.innerHTML = '<i class="sw"></i><span class="nm">' + (i+1) + '. ' + FUELS[p.fuel].n +
-      '</span><span class="ar">' + fmt(rai,1) + ' ไร่</span>';
+      '</span><span class="ar">' + fmt(rai,1) + tr(" rai</span>", ' ไร่</span>');
     const tg = document.createElement('button');
-    tg.className='x'; tg.textContent = p.on===false ? '○' : '●'; tg.title='เปิด/ปิดแปลงนี้';
+    tg.className='x'; tg.textContent = p.on===false ? '○' : '●'; tg.title=tr("Turn this plot on or off", 'เปิด/ปิดแปลงนี้');
     tg.onclick = e => { e.stopPropagation(); p.on = p.on===false; redrawPlots(); schedule(); };
     const x = document.createElement('button');
-    x.className='x'; x.textContent='×'; x.title='ลบแปลง';
+    x.className='x'; x.textContent='×'; x.title=tr("Delete plot", 'ลบแปลง');
     x.onclick = e => { e.stopPropagation(); S.plots = S.plots.filter(q => q.id !== p.id);
                        if(S.sel === p.id) S.sel = S.plots.length ? S.plots[0].id : null;
                        redrawPlots(); syncEditor(); schedule(); };
@@ -644,7 +656,7 @@ function renderPlotList(){
     d.onclick = () => selectPlot(p.id);
     el.appendChild(d);
   });
-  $('totarea').textContent = fmt(tot,1) + ' ไร่ · ' + fmt(tot*RAI/1e6,3) + ' กม²';
+  $('totarea').textContent = fmt(tot,1) + tr(" rai · ", ' ไร่ · ') + fmt(tot*RAI/1e6,3) + tr(" km²", ' กม²');
 }
 function selectPlot(id){ S.sel = id; redrawPlots(); syncEditor(); }
 function currentPlot(){ return S.plots.find(p => p.id === S.sel); }
@@ -654,7 +666,7 @@ function syncEditor(){
   if(!p) return;
   $('fuel').value = p.fuel; $('load').value = p.load; $('ef').value = p.ef; $('cc').value = p.cc;
   $('moist').value = p.moist;
-  $('moisttxt').textContent = p.moist < 0.25 ? 'แห้งมาก' : p.moist < 0.5 ? 'ปานกลาง' : p.moist < 0.7 ? 'ค่อนข้างชื้น' : 'ชื้นมาก';
+  $('moisttxt').textContent = p.moist < 0.25 ? tr("Very dry", 'แห้งมาก') : p.moist < 0.5 ? tr("Moderate", 'ปานกลาง') : p.moist < 0.7 ? tr("Fairly damp", 'ค่อนข้างชื้น') : tr("Very damp", 'ชื้นมาก');
   const isPt = p.type === 'point';
   $('rai').parentElement.style.display = isPt ? '' : 'none';
   if(isPt) $('rai').value = p.rai;
@@ -680,13 +692,13 @@ function redrawRecs(){
                    {direction:'top'});
     m.addTo(gRec);
   });
-  $('rectag').textContent = S.receptors.length ? S.receptors.length + ' จุด' : '';
+  $('rectag').textContent = S.receptors.length ? S.receptors.length + tr(" places", ' จุด') : '';
 }
 async function fetchOsm(){
   const c = fireCentroid();
-  if(!c){ $('osmStatus').innerHTML = '<div class="errbox">วางแปลงเผาก่อน</div>'; return; }
+  if(!c){ $('osmStatus').innerHTML = tr("<div class=\"errbox\">Place a burn plot first</div>", '<div class="errbox">วางแปลงเผาก่อน</div>'); return; }
   const R = Math.round(Math.max(1, Math.min(30, +$('recrad').value))*1000);
-  $('osmStatus').innerHTML = '<div class="hint"><span class="spin"></span> กำลังค้นหาในรัศมี ' + (R/1000) + ' กม.…</div>';
+  $('osmStatus').innerHTML = tr("<div class=\"hint\"><span class=\"spin\"></span> Searching within ", '<div class="hint"><span class="spin"></span> กำลังค้นหาในรัศมี ') + (R/1000) + tr(" km…</div>", ' กม.…</div>');
   const q = '[out:json][timeout:40];(' +
     'nwr["amenity"~"^(school|kindergarten|hospital|clinic|nursing_home)$"](around:' + R + ',' + c.lat + ',' + c.lng + ');' +
     'node["place"~"^(village|hamlet|town|city|suburb)$"](around:' + R + ',' + c.lat + ',' + c.lng + ');' +
@@ -709,7 +721,7 @@ async function fetchOsm(){
         if(lat == null || lon == null) return;
         const t = e.tags || {};
         const kind = t.amenity || t.place || 'manual';
-        const name = t['name:th'] || t.name || (REC_TH[kind] || 'จุดไม่ระบุชื่อ');
+        const name = t['name:th'] || t.name || (REC_TH[kind] || tr("Unnamed place", 'จุดไม่ระบุชื่อ'));
         found.push({ll: L.latLng(lat,lon), name, kind, src:'osm'});
       });
       // ตัดจุดซ้ำที่อยู่ใกล้กันมาก
@@ -718,13 +730,13 @@ async function fetchOsm(){
         if(!kept.some(k => k.name === f.name && k.ll.distanceTo(f.ll) < 250)) kept.push(f);
       });
       S.receptors = S.receptors.filter(r => r.src !== 'osm').concat(kept);
-      $('osmStatus').innerHTML = '<div class="hint">พบ ' + kept.length + ' จุด · ข้อมูลจาก OpenStreetMap contributors</div>';
+      $('osmStatus').innerHTML = tr("<div class=\"hint\">Found ", '<div class="hint">พบ ') + kept.length + tr(" places · data from OpenStreetMap contributors</div>", ' จุด · ข้อมูลจาก OpenStreetMap contributors</div>');
       redrawRecs(); schedule();
       return;
     }catch(e){ /* ลอง endpoint ถัดไป */ }
   }
-  $('osmStatus').innerHTML = '<div class="errbox">' + netFail('Overpass ทั้ง ' + eps.length + ' เซิร์ฟเวอร์') +
-    (OFFLINE ? '' : ' — เซิร์ฟเวอร์อาจโหลดหนักอยู่ ลองใหม่อีกครั้ง หรือปักหมุดเอง') + '</div>';
+  $('osmStatus').innerHTML = '<div class="errbox">' + netFail(tr("all ", 'Overpass ทั้ง ') + eps.length + tr(" Overpass servers", ' เซิร์ฟเวอร์')) +
+    (OFFLINE ? '' : tr(". The servers may be busy. Try again, or pin places yourself.", ' — เซิร์ฟเวอร์อาจโหลดหนักอยู่ ลองใหม่อีกครั้ง หรือปักหมุดเอง')) + '</div>';
 }
 
 /* ---------------- panel ---------------- */
@@ -735,8 +747,8 @@ function renderPanel(){
   // S.result ไม่ถูกล้างระหว่างรัน ถ้าเช็ค !S.result ข้อความความคืบหน้าจะขึ้นแค่ครั้งแรก
   // ของทั้งเซสชัน — กรณีที่ต้องการมันที่สุด (สลับจาก gaussian ไป puff ที่ช้ากว่า) จะไม่เห็นเลย
   if(S.computing){
-    const pg = S.progress ? ' ชั่วโมง ' + S.progress.h + '/' + S.progress.nH : '';
-    const banner = '<div class="hint"><span class="spin"></span> กำลังคำนวณ…' + pg + '</div>';
+    const pg = S.progress ? tr(" hour ", ' ชั่วโมง ') + S.progress.h + '/' + S.progress.nH : '';
+    const banner = tr("<div class=\"hint\"><span class=\"spin\"></span> Calculating…", '<div class="hint"><span class="spin"></span> กำลังคำนวณ…') + pg + '</div>';
     if(!S.result){ el.innerHTML = banner; return; }
     el.innerHTML = banner;                       // มีผลเก่าอยู่ → แสดงแบนเนอร์คั่นแล้วต่อด้วยผลเดิม
     const old = document.createElement('div');
@@ -745,13 +757,13 @@ function renderPanel(){
     if(S.tab === 'sum') renderSummary(old); else if(S.tab === 'rec') renderRecs(old); else renderMet(old);
     return;
   }
-  if(!S.result){ el.innerHTML = '<div class="hint">วางแปลงเผาบนแผนที่เพื่อเริ่มจำลอง</div>'; return; }
+  if(!S.result){ el.innerHTML = tr("<div class=\"hint\">Place a burn plot on the map to start the simulation</div>", '<div class="hint">วางแปลงเผาบนแผนที่เพื่อเริ่มจำลอง</div>'); return; }
   if(S.tab === 'sum') renderSummary(el);
   else if(S.tab === 'rec') renderRecs(el);
   else renderMet(el);
 }
 function viewLabel(){
-  return S.view === 'hour' ? 'ชั่วโมงที่เลือก' : S.view === 'max' ? 'ค่าพีครายชั่วโมงสูงสุด' : 'ค่าเฉลี่ย 24 ชม.';
+  return S.view === 'hour' ? tr("Selected hour", 'ชั่วโมงที่เลือก') : S.view === 'max' ? tr("Highest hourly peak", 'ค่าพีครายชั่วโมงสูงสุด') : tr("24-hour average", 'ค่าเฉลี่ย 24 ชม.');
 }
 /* ตัวเลขจากแบบจำลองไม่ควรแสดงนัยสำคัญเกินกว่าที่แบบจำลองรองรับ
    446 อ่านเหมือนค่าพยากรณ์ ~450 อ่านเหมือนค่าประมาณ ซึ่งตรงกับความจริงกว่า */
@@ -764,18 +776,18 @@ function softNum(v){
 /* จำนวนคนเป็นการคูณพื้นที่กับความหนาแน่นที่ผู้ใช้กรอก ไม่ใช่ข้อมูลทะเบียน
    แสดงเป็นช่วงกว้างเพื่อไม่ให้ถูกยกไปอ้างเป็นตัวเลขผู้ได้รับผลกระทบ */
 function popRange(p){
-  if(!(p > 0)) return 'ไม่มี';
+  if(!(p > 0)) return tr("None", 'ไม่มี');
   var lo = Math.round(p*0.5/10)*10, hi = Math.round(p*2/10)*10;
-  return 'ราว ' + lo.toLocaleString('th-TH') + '–' + hi.toLocaleString('th-TH') + ' คน';
+  return tr("about ", 'ราว ') + lo.toLocaleString('th-TH') + '–' + hi.toLocaleString('th-TH') + tr(" people", ' คน');
 }
 /* แถบความน่าเชื่อถือ อยู่บนสุดของแผงสรุปตลอด
    ข้อมูลที่สำคัญที่สุดคือ**ทิศของอคติ** ผู้ใช้ที่เห็นเลขต้องรู้ว่ามันมีแนวโน้มต่ำกว่าจริง
    ไม่ใช่แค่ว่า "ไม่แม่น" ซึ่งฟังเหมือนพลาดได้ทั้งสองทางเท่าๆ กัน */
 function trustBar(){
-  return '<div class="trustbar"><b>ผลจากแบบจำลอง ไม่ใช่ค่าตรวจวัด และยังไม่เคยตรวจสอบเทียบสถานีจริง</b>' +
-    '<span class="why">ช่องว่างที่รู้อยู่เกือบทั้งหมดดันผลไป<b>ทางต่ำกว่าจริง</b> — ' +
-    'ยังไม่คิดอนุภาคทุติยภูมิ การคลุกลงพื้นตอนเช้า การสะสมข้ามวัน และควันจากไฟอื่น · ' +
-    'ใช้เทียบทางเลือกได้ <b>ห้ามใช้ออกใบอนุญาตหรือประกาศเตือนภัย</b></span></div>';
+  return tr("<div class=\"trustbar\"><b>Model output, not measurements, and not yet checked against real monitoring stations</b>", '<div class="trustbar"><b>ผลจากแบบจำลอง ไม่ใช่ค่าตรวจวัด และยังไม่เคยตรวจสอบเทียบสถานีจริง</b>') +
+    tr("<span class=\"why\">Almost every known gap pushes the results <b>below the real values</b>: ", '<span class="why">ช่องว่างที่รู้อยู่เกือบทั้งหมดดันผลไป<b>ทางต่ำกว่าจริง</b> — ') +
+    tr("secondary particles, morning fumigation, overnight build-up and smoke from other fires are not included. ", 'ยังไม่คิดอนุภาคทุติยภูมิ การคลุกลงพื้นตอนเช้า การสะสมข้ามวัน และควันจากไฟอื่น · ') +
+    tr("Use it to compare options. <b>Do not use it to issue permits or public health warnings.</b></span></div>", 'ใช้เทียบทางเลือกได้ <b>ห้ามใช้ออกใบอนุญาตหรือประกาศเตือนภัย</b></span></div>');
 }
 function renderSummary(el){
   const r = S.result, st = S.stats || {areas:[], dmax:0, dmaxD:0, reach:0};
@@ -793,39 +805,39 @@ function renderSummary(el){
     if(!st.areas[i] || st.areas[i] < 0.005) return;
     bands += '<div class="brow"><i style="background:' + b.c + '"></i><span class="n">' + b.n +
       ' <span style="opacity:.55">' + b.lo + (b.hi ? '–' + b.hi : '+') + '</span></span><span class="v">' +
-      fmt(st.areas[i],2) + ' กม²</span></div>';
+      fmt(st.areas[i],2) + tr(" km²</span></div>", ' กม²</span></div>');
   });
 
   const outside = plotsOutside();
 
   el.innerHTML =
     trustBar() +
-    (outside.length ? '<div class="warnbox" id="outsidewarn">แปลง ' + outside.join(', ') +
-      ' อยู่นอกพื้นที่จำลอง (ขอบเขต ' + S.rangeKm + ' กม. รอบจุดกึ่งกลางของทุกแปลง) ควันจากแปลงนี้จึงถูกคิดไม่ครบ ' +
-      'ตัวเลขข้างล่าง<b>ต่ำกว่าจริง</b> — เพิ่ม “ขอบเขต” ในหัวข้อการคำนวณ หรือปิดแปลงที่อยู่ไกลแล้วจำลองทีละกลุ่ม</div>' : '') +
-    '<div class="sub">' + viewLabel() + (S.view==='hour' && hrs[S.hourIndex] ? ' · ' + hrs[S.hourIndex].t.slice(11) + ' น.' : '') + '</div>' +
-    '<div class="st2"><span>ค่าสูงสุดบนพื้น</span><b style="color:' + recColor(totMax) + '">' + softNum(totMax) + ' µg/m³</b></div>' +
-    '<div class="st2"><span>ห่างจากกองไฟใกล้สุด</span><b>' + fmt(st.dmaxD/1000,2) + ' กม.</b></div>' +
-    '<div class="st2"><span>เกิน 37.5 ไปไกลถึง</span><b>' + (st.reach > 0 ? fmt(st.reach/1000,2) + ' กม.' : 'ไม่เกิน') + '</b></div>' +
-    '<div class="st2"><span>ทิศที่ควันไปเฉลี่ย</span><b>' + compass(Math.atan2(r.meanUx, r.meanUy)*180/Math.PI) + '</b></div>' +
+    (outside.length ? tr("<div class=\"warnbox\" id=\"outsidewarn\">Outside the simulated area: plot ", '<div class="warnbox" id="outsidewarn">แปลง ') + outside.join(', ') +
+      tr(" (range ", ' อยู่นอกพื้นที่จำลอง (ขอบเขต ') + S.rangeKm + tr(" km around the center of all plots), so its smoke is only partly counted. ", ' กม. รอบจุดกึ่งกลางของทุกแปลง) ควันจากแปลงนี้จึงถูกคิดไม่ครบ ') +
+      tr("The numbers below are <b>lower than real</b>. Increase “Range” under Calculation, or turn off the far plots and simulate each group separately.</div>", 'ตัวเลขข้างล่าง<b>ต่ำกว่าจริง</b> — เพิ่ม “ขอบเขต” ในหัวข้อการคำนวณ หรือปิดแปลงที่อยู่ไกลแล้วจำลองทีละกลุ่ม</div>') : '') +
+    '<div class="sub">' + viewLabel() + (S.view==='hour' && hrs[S.hourIndex] ? ' · ' + hrs[S.hourIndex].t.slice(11) + tr("", ' น.') : '') + '</div>' +
+    tr("<div class=\"st2\"><span>Highest ground level</span><b style=\"color:", '<div class="st2"><span>ค่าสูงสุดบนพื้น</span><b style="color:') + recColor(totMax) + '">' + softNum(totMax) + ' µg/m³</b></div>' +
+    tr("<div class=\"st2\"><span>Distance from nearest fire</span><b>", '<div class="st2"><span>ห่างจากกองไฟใกล้สุด</span><b>') + fmt(st.dmaxD/1000,2) + tr(" km</b></div>", ' กม.</b></div>') +
+    tr("<div class=\"st2\"><span>Above 37.5 reaches</span><b>", '<div class="st2"><span>เกิน 37.5 ไปไกลถึง</span><b>') + (st.reach > 0 ? fmt(st.reach/1000,2) + tr(" km", ' กม.') : tr("Nowhere", 'ไม่เกิน')) + '</b></div>' +
+    tr("<div class=\"st2\"><span>Average smoke direction</span><b>", '<div class="st2"><span>ทิศที่ควันไปเฉลี่ย</span><b>') + compass(Math.atan2(r.meanUx, r.meanUy)*180/Math.PI) + '</b></div>' +
     '<div class="sep"></div>' +
-    '<div class="st2"><span>เชื้อเพลิงที่ไหม้</span><b>' + fmt(r.totalFuelT,2) + ' ตัน</b></div>' +
-    '<div class="st2"><span>PM2.5 ที่ปล่อยรวม</span><b>' + fmt(r.totalEmitKg,1) + ' กก.</b></div>' +
+    tr("<div class=\"st2\"><span>Fuel burned</span><b>", '<div class="st2"><span>เชื้อเพลิงที่ไหม้</span><b>') + fmt(r.totalFuelT,2) + tr(" t</b></div>", ' ตัน</b></div>') +
+    tr("<div class=\"st2\"><span>Total PM2.5 emitted</span><b>", '<div class="st2"><span>PM2.5 ที่ปล่อยรวม</span><b>') + fmt(r.totalEmitKg,1) + tr(" kg</b></div>", ' กก.</b></div>') +
     '<div class="sep"></div>' +
-    '<div class="sub">พื้นที่ตามระดับคุณภาพอากาศ</div>' +
-    (bands || '<div class="hint">ควันเจือจางต่ำกว่าเกณฑ์ในระยะที่จำลอง</div>') +
-    '<div class="st2" style="margin-top:6px"><span>คนที่อาจอยู่ในเขตเกิน 37.5</span><b>' +
+    tr("<div class=\"sub\">Area by air quality level</div>", '<div class="sub">พื้นที่ตามระดับคุณภาพอากาศ</div>') +
+    (bands || tr("<div class=\"hint\">The smoke stays below the lowest level within the simulated range</div>", '<div class="hint">ควันเจือจางต่ำกว่าเกณฑ์ในระยะที่จำลอง</div>')) +
+    tr("<div class=\"st2\" style=\"margin-top:6px\"><span>People who may be in the above-37.5 zone</span><b>", '<div class="st2" style="margin-top:6px"><span>คนที่อาจอยู่ในเขตเกิน 37.5</span><b>') +
       popRange(pop) + '</b></div>' +
-    '<div class="note">จำนวนคนคือ พื้นที่ × ความหนาแน่นที่กรอกไว้ (' + fmt(S.pop,0) +
-      ' คน/กม²) <b>ไม่ใช่ข้อมูลทะเบียนประชากรจริง</b> ใช้เทียบขนาดผลกระทบระหว่างทางเลือกเท่านั้น</div>' +
-    (anyCap ? '<div class="warnbox">บางชั่วโมงพลูมชนเพดานชั้นผสม ควันขึ้นต่อไม่ได้จึงถูกกดกลับลงมาที่พื้น</div>' : '') +
-    (rain ? '<div class="hint">มีฝนใน ' + rain + ' ชั่วโมง คิดผลการชะล้างควันแล้ว</div>' : '') +
-    '<div class="note">อ้างอิงมาตรฐาน PM2.5 ของไทย 37.5 µg/m³ (เฉลี่ย 24 ชม.) และค่าแนะนำ WHO 15 µg/m³ · รวมพื้นหลัง ' + fmt(BG,0) + ' µg/m³' +
-      (S.bgAuto && S.bgSeries ? ' จาก Open-Meteo Air Quality' : '') + '</div>';
+    tr("<div class=\"note\">People = area × the population density you entered (", '<div class="note">จำนวนคนคือ พื้นที่ × ความหนาแน่นที่กรอกไว้ (') + fmt(S.pop,0) +
+      tr(" people/km²). <b>This is not real census data.</b> Use it only to compare the size of the impact between options.</div>", ' คน/กม²) <b>ไม่ใช่ข้อมูลทะเบียนประชากรจริง</b> ใช้เทียบขนาดผลกระทบระหว่างทางเลือกเท่านั้น</div>') +
+    (anyCap ? tr("<div class=\"warnbox\">In some hours the plume hits the mixing-layer ceiling. The smoke can't rise further and is pushed back down to the ground.</div>", '<div class="warnbox">บางชั่วโมงพลูมชนเพดานชั้นผสม ควันขึ้นต่อไม่ได้จึงถูกกดกลับลงมาที่พื้น</div>') : '') +
+    (rain ? tr("<div class=\"hint\">Rain in ", '<div class="hint">มีฝนใน ') + rain + tr(" hours. Washout of the smoke is included.</div>", ' ชั่วโมง คิดผลการชะล้างควันแล้ว</div>') : '') +
+    tr("<div class=\"note\">Based on Thailand's PM2.5 standard of 37.5 µg/m³ (24-hour average) and the WHO guideline of 15 µg/m³ · includes background ", '<div class="note">อ้างอิงมาตรฐาน PM2.5 ของไทย 37.5 µg/m³ (เฉลี่ย 24 ชม.) และค่าแนะนำ WHO 15 µg/m³ · รวมพื้นหลัง ') + fmt(BG,0) + ' µg/m³' +
+      (S.bgAuto && S.bgSeries ? tr(" from Open-Meteo Air Quality", ' จาก Open-Meteo Air Quality') : '') + '</div>';
 }
 function renderRecs(el){
   if(!S.receptors.length){
-    el.innerHTML = '<div class="hint">ยังไม่มีจุดอ่อนไหว — กดปุ่มดึงข้อมูลจาก OpenStreetMap ในแผงซ้าย หรือปักหมุดเอง</div>';
+    el.innerHTML = tr("<div class=\"hint\">No sensitive places yet. Fetch them from OpenStreetMap in the left panel, or pin them yourself.</div>", '<div class="hint">ยังไม่มีจุดอ่อนไหว — กดปุ่มดึงข้อมูลจาก OpenStreetMap ในแผงซ้าย หรือปักหมุดเอง</div>');
     return;
   }
   const r = S.result, BG = curBg();
@@ -835,30 +847,30 @@ function renderRecs(el){
     return {rc, v, dist: Math.hypot(x,y)/1000, i};
   }).sort((a,b) => b.v - a.v);
   const over = rows.filter(x => x.v >= 37.5).length;
-  let html = '<div class="sub">' + viewLabel() + ' · เกินมาตรฐาน ' + over + ' จาก ' + rows.length + ' จุด</div>';
+  let html = '<div class="sub">' + viewLabel() + tr(" · above the standard at ", ' · เกินมาตรฐาน ') + over + tr(" of ", ' จาก ') + rows.length + tr(" places</div>", ' จุด</div>');
   rows.slice(0,60).forEach(x => {
     const col = recColor(x.v);
     html += '<div class="rec"><span class="ic">' + (REC_ICON[x.rc.kind]||'📍') + '</span>' +
-      '<span class="n">' + x.rc.name + '<br><span class="d">' + (REC_TH[x.rc.kind]||'') + ' · ' + fmt(x.dist,2) + ' กม.</span></span>' +
+      '<span class="n">' + x.rc.name + '<br><span class="d">' + (REC_TH[x.rc.kind]||'') + ' · ' + fmt(x.dist,2) + tr(" km</span></span>", ' กม.</span></span>') +
       '<span class="v" style="background:' + col + '22;color:' + col + '">' + fmt(x.v,0) + '</span></div>';
   });
-  if(rows.length > 60) html += '<div class="hint">แสดง 60 อันดับแรก ส่งออก CSV เพื่อดูทั้งหมด</div>';
+  if(rows.length > 60) html += tr("<div class=\"hint\">Showing the top 60. Export CSV to see them all.</div>", '<div class="hint">แสดง 60 อันดับแรก ส่งออก CSV เพื่อดูทั้งหมด</div>');
   el.innerHTML = html;
 }
 function renderMet(el){
   const hrs = S.result.perHour;
   const hbg = i => (S.bgAuto && S.bgSeries && S.bgSeries[hrs[i].t] != null) ? S.bgSeries[hrs[i].t] : S.bg;
-  let html = '<div class="sub">สภาพอากาศและผลรายชั่วโมง</div>';
+  let html = tr("<div class=\"sub\">Weather and hourly results</div>", '<div class="sub">สภาพอากาศและผลรายชั่วโมง</div>');
   hrs.forEach((h,i) => {
     html += '<div class="rec" style="cursor:pointer" data-h="' + i + '">' +
       '<span class="ic" style="transform:rotate(' + (h.wdir+180) + 'deg);display:inline-block;color:var(--hot)">↑</span>' +
-      '<span class="n">' + h.t.slice(11) + ' น. · ' + fmt(h.ws,1) + ' ม./วิ ' + compass(h.wdir) +
-      '<br><span class="d">ชั้น ' + h.stab + ' · ผสมสูง ' + Math.round(h.mix) + ' ม. · ปล่อย ' +
-        Math.round(h.share*100) + '%' + (h.precip > 0.05 ? ' · ฝน ' + fmt(h.precip,1) + ' มม.' : '') + '</span></span>' +
+      '<span class="n">' + h.t.slice(11) + tr(" · ", ' น. · ') + fmt(h.ws,1) + tr(" m/s ", ' ม./วิ ') + compass(h.wdir) +
+      tr("<br><span class=\"d\">class ", '<br><span class="d">ชั้น ') + h.stab + tr(" · mixing height ", ' · ผสมสูง ') + Math.round(h.mix) + tr(" m · emitted ", ' ม. · ปล่อย ') +
+        Math.round(h.share*100) + '%' + (h.precip > 0.05 ? tr(" · rain ", ' · ฝน ') + fmt(h.precip,1) + tr(" mm", ' มม.') : '') + '</span></span>' +
       '<span class="v" style="background:' + recColor(h.max+hbg(i)) + '22;color:' + recColor(h.max+hbg(i)) + '">' +
         fmt(h.max+hbg(i),0) + '</span></div>';
   });
-  html += '<div class="note">ชั้นความเสถียรคำนวณจากรังสีดวงอาทิตย์ เมฆ และความเร็วลม ตามตาราง Pasquill–Gifford · ความสูงชั้นผสมมาจากแบบจำลองอากาศของ Open-Meteo</div>';
+  html += tr("<div class=\"note\">Stability class is worked out from sunlight, cloud and wind speed using the Pasquill–Gifford table · mixing height comes from Open-Meteo's weather model</div>", '<div class="note">ชั้นความเสถียรคำนวณจากรังสีดวงอาทิตย์ เมฆ และความเร็วลม ตามตาราง Pasquill–Gifford · ความสูงชั้นผสมมาจากแบบจำลองอากาศของ Open-Meteo</div>');
   el.innerHTML = html;
   el.querySelectorAll('[data-h]').forEach(n => n.onclick = () => gotoHour(+n.dataset.h));
 }
@@ -874,7 +886,7 @@ function wlSay(txt){
   b.innerHTML = txt; b.style.display = '';
 }
 function netFail(what, e){
-  return 'เรียก ' + what + ' ไม่ได้' + (OFFLINE ? ' — เพราะเปิดไฟล์แบบ file:// เบราว์เซอร์บล็อกไว้' : ' (' + (e && e.message || e) + ')');
+  return tr("Could not reach ", 'เรียก ') + what + tr("", ' ไม่ได้') + (OFFLINE ? tr(", because the file was opened as file:// and the browser blocks it", ' — เพราะเปิดไฟล์แบบ file:// เบราว์เซอร์บล็อกไว้') : ' (' + (e && e.message || e) + ')');
 }
 
 /* --- RainViewer: เรดาร์ฝนและภาพอินฟราเรด --- */
@@ -906,7 +918,7 @@ async function toggleRV(kind, on){
   try{
     await ensureRV();
     const f = rvFrame(kind, currentHourKey());
-    if(!f) throw new Error('ไม่มีเฟรมข้อมูล');
+    if(!f) throw new Error(tr("No data frames", 'ไม่มีเฟรมข้อมูล'));
     WL[key] = L.tileLayer(rvUrl(kind, f), {opacity:+$('wlopa').value, maxZoom:19,
       attribution:'&copy; RainViewer', zIndex: kind==='radar' ? 320 : 300}).addTo(map);
     syncWeather();
@@ -934,8 +946,8 @@ function toggleGibs(kind, on){
     maxZoom:18, maxNativeZoom:cfg.level, opacity:cfg.op, zIndex:cfg.z,
     attribution:'&copy; NASA EOSDIS GIBS'});
   WL[key].on('tileerror', () => {
-    if(++bad === 6) $('netnote').innerHTML = '<div class="warnbox">NASA GIBS ยังไม่มีภาพของวันที่ ' + date +
-      ' (ภาพรายวันมักขึ้นช้าราวครึ่งวัน) ลองเลือกวันก่อนหน้า</div>';
+    if(++bad === 6) $('netnote').innerHTML = tr("<div class=\"warnbox\">NASA GIBS has no image for ", '<div class="warnbox">NASA GIBS ยังไม่มีภาพของวันที่ ') + date +
+      tr(" yet (daily images usually arrive about half a day late). Try an earlier date.</div>", ' (ภาพรายวันมักขึ้นช้าราวครึ่งวัน) ลองเลือกวันก่อนหน้า</div>');
   });
   WL[key].addTo(map);
   syncWeather();
@@ -944,7 +956,7 @@ function toggleGibs(kind, on){
 /* --- สนามลม: กริดจาก Open-Meteo แล้ววาดเป็นอนุภาคไหล --- */
 async function fetchWindGrid(){
   const c = fireCentroid();
-  if(!c) throw new Error('ยังไม่มีแปลงเผา');
+  if(!c) throw new Error(tr("No burn plots yet", 'ยังไม่มีแปลงเผา'));
   // ครอบ 1.4R เท่ากับ DEM ไม่ใช่ R เฉยๆ เพราะกริดเอนจินเลื่อนศูนย์กลางไปทางท้ายลม 0.32R
   // จึงกินไกลถึง 1.32R ถ้าครอบแค่ R ขอบท้ายลม 16% ของแกนจะได้ลมค่าขอบแบบ clamp
   const n = 6, R = 1.4*S.rangeKm*1000;
@@ -1106,14 +1118,14 @@ function syncWeather(){
     const d = new Date(f.time*1000);
     const lbl = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
     const drift = Math.abs(f.time - new Date(key + ':00').getTime()/1000)/60;
-    bits.push('<b>' + (k==='radar'?'เรดาร์ฝน':'อินฟราเรด') + '</b> ' + lbl + ' น.' +
-              (drift > 45 ? ' <span style="color:var(--b4)">(ห่างจากชั่วโมงที่เลือก ' + Math.round(drift/60) + ' ชม.)</span>' : ''));
+    bits.push('<b>' + (k==='radar'?tr("Rain radar", 'เรดาร์ฝน'):tr("Infrared", 'อินฟราเรด')) + '</b> ' + lbl + tr("", ' น.') +
+              (drift > 45 ? tr(" <span style=\"color:var(--b4)\">(", ' <span style="color:var(--b4)">(ห่างจากชั่วโมงที่เลือก ') + Math.round(drift/60) + tr(" h from the selected hour)</span>", ' ชม.)</span>') : ''));
   });
-  if(WL.gibs) bits.push('<b>ภาพดาวเทียม NASA</b> ' + S.date);
-  if(WL.fire) bits.push('<b>จุดความร้อน VIIRS</b> ' + S.date);
-  if(windAnim) bits.push('<b>สนามลม</b> ' + (windGrid ? 'กริด 6×6 จาก Open-Meteo' : 'ค่าลมของชั่วโมงนี้'));
+  if(WL.gibs) bits.push(tr("<b>NASA satellite image</b> ", '<b>ภาพดาวเทียม NASA</b> ') + S.date);
+  if(WL.fire) bits.push(tr("<b>VIIRS hotspots</b> ", '<b>จุดความร้อน VIIRS</b> ') + S.date);
+  if(windAnim) bits.push(tr("<b>Wind field</b> ", '<b>สนามลม</b> ') + (windGrid ? tr("6×6 grid from Open-Meteo", 'กริด 6×6 จาก Open-Meteo') : tr("this hour's wind", 'ค่าลมของชั่วโมงนี้')));
   wlSay(bits.join('<br>'));
-  $('wltag').textContent = bits.length ? bits.length + ' ชั้น' : '';
+  $('wltag').textContent = bits.length ? bits.length + tr(" layers", ' ชั้น') : '';
 }
 
 /* --- wiring --- */
@@ -1127,14 +1139,14 @@ $('lyWind').onchange  = async e => {
   syncWeather();
   if(!windGrid){
     try{ await fetchWindGrid(); syncWeather(); }
-    catch(err){ $('netnote').innerHTML = '<div class="warnbox">' + netFail('กริดลม Open-Meteo', err) +
-      ' — ตอนนี้แสดงลมของชั่วโมงที่เลือกแบบสม่ำเสมอทั้งพื้นที่แทน</div>'; }
+    catch(err){ $('netnote').innerHTML = '<div class="warnbox">' + netFail(tr("the Open-Meteo wind grid", 'กริดลม Open-Meteo'), err) +
+      tr(". Showing the selected hour's wind as uniform across the area instead.</div>", ' — ตอนนี้แสดงลมของชั่วโมงที่เลือกแบบสม่ำเสมอทั้งพื้นที่แทน</div>'); }
   }
 };
 $('wlopa').oninput = () => { ['radar','sat','gibs'].forEach(k => { if(WL[k]) WL[k].setOpacity(+$('wlopa').value); }); };
 if(OFFLINE){
-  $('netnote').innerHTML = '<div class="warnbox">คุณเปิดไฟล์นี้แบบ <b>file://</b> เบราว์เซอร์จะบล็อกการเรียก API ภายนอกทั้งหมด (พยากรณ์อากาศ เรดาร์ OpenStreetMap) ' +
-    'ให้เปิดเทอร์มินัลที่โฟลเดอร์นี้แล้วสั่ง <b>npm run dev -w app</b> จากนั้นเข้า <b>http://localhost:5180/</b></div>';
+  $('netnote').innerHTML = tr("<div class=\"warnbox\">You opened this file as <b>file://</b>, so the browser blocks every outside API (weather forecast, radar, OpenStreetMap). ", '<div class="warnbox">คุณเปิดไฟล์นี้แบบ <b>file://</b> เบราว์เซอร์จะบล็อกการเรียก API ภายนอกทั้งหมด (พยากรณ์อากาศ เรดาร์ OpenStreetMap) ') +
+    tr("Open a terminal in this folder and run <b>npm run dev -w app</b>, then go to <b>http://localhost:5180/</b></div>", 'ให้เปิดเทอร์มินัลที่โฟลเดอร์นี้แล้วสั่ง <b>npm run dev -w app</b> จากนั้นเข้า <b>http://localhost:5180/</b></div>');
 }
 
 /* ---------------- 3D mode (MapLibre + terrain) ---------------- */
@@ -1195,7 +1207,7 @@ function init3D(){
       version: 8,
       sources: {
         sat:  {type:'raster', tiles:[SATURL], tileSize:256, maxzoom:19,
-               attribution:'&copy; Esri, Maxar · ภูมิประเทศ Terrain Tiles (AWS Open Data)'},
+               attribution:tr("&copy; Esri, Maxar · terrain from Terrain Tiles (AWS Open Data)", '&copy; Esri, Maxar · ภูมิประเทศ Terrain Tiles (AWS Open Data)')},
         // อยู่ที่ z14 เพราะข้อมูลต้นทางของ terrarium แถบนี้คือ SRTM 30 ม. ส่วน z14 ให้
         // 9 ม./พิกเซลซึ่ง oversample อยู่แล้ว · เคยลอง z15 (มีจริง z16 คืน 404) ได้ไทล์
         // เยอะขึ้นสี่เท่าโดยไม่ได้รายละเอียดเพิ่มเลย และหนักจนหน้าโหลดใหม่เอง
@@ -1255,8 +1267,8 @@ function init3D(){
   m3.on('error', e => {
     const msg = (e && e.error && e.error.message) || '';
     if(/dem|elevation/i.test(msg)) $('netnote').innerHTML =
-      '<div class="warnbox">โหลดข้อมูลความสูงภูมิประเทศไม่ได้ — โหมด 3D จะแสดงเป็นพื้นราบ ' +
-      (OFFLINE ? 'สาเหตุคือเปิดแบบ file://' : '') + '</div>';
+      tr("<div class=\"warnbox\">Could not load terrain heights. 3D mode will show flat ground. ", '<div class="warnbox">โหลดข้อมูลความสูงภูมิประเทศไม่ได้ — โหมด 3D จะแสดงเป็นพื้นราบ ') +
+      (OFFLINE ? tr("This is because the file was opened as file://", 'สาเหตุคือเปิดแบบ file://') : '') + '</div>';
   });
 }
 
@@ -1317,10 +1329,10 @@ function await3D(w3){
     done = true;
     m3.off('style.load', finish); m3.off('render', finish);
     const cv = m3.getCanvas();
-    diag('<b>แผนที่ 3 มิติเริ่มไม่สำเร็จ</b><br>ขนาดภาพวาด ' + cv.width + '×' + cv.height +
-         ' · คอนเทนเนอร์กว้าง ' + w3 + 'px · สไตล์พร้อม ' + (m3ready ? 'ใช่' : 'ไม่') +
-         ' · ชิ้นส่วนควัน ' + plumeVolume().features.length +
-         '<br>ลองกด 2D แล้วกด 3D ใหม่ ถ้ายังไม่ขึ้นให้กด <code>Cmd+Shift+R</code>');
+    diag(tr("<b>The 3D map failed to start</b><br>canvas size ", '<b>แผนที่ 3 มิติเริ่มไม่สำเร็จ</b><br>ขนาดภาพวาด ') + cv.width + '×' + cv.height +
+         tr(" · container width ", ' · คอนเทนเนอร์กว้าง ') + w3 + tr("px · style ready ", 'px · สไตล์พร้อม ') + (m3ready ? tr("yes", 'ใช่') : tr("no", 'ไม่')) +
+         tr(" · smoke pieces ", ' · ชิ้นส่วนควัน ') + plumeVolume().features.length +
+         tr("<br>Press 2D, then 3D again. If it still doesn't show, press <code>Cmd+Shift+R</code>", '<br>ลองกด 2D แล้วกด 3D ใหม่ ถ้ายังไม่ขึ้นให้กด <code>Cmd+Shift+R</code>'));
   }, 25000);
   m3.on('style.load', finish); m3.on('render', finish);
   finish();
@@ -1376,17 +1388,17 @@ async function initThree3D(){
   /* ฉากสร้างภูมิประเทศและก้อนควันจากผลคำนวณตอนสร้างครั้งเดียว และต้องใช้ origin คิดทิศดวงอาทิตย์
      ยังไม่มีผลก็อย่าเพิ่งสร้าง (เคยพังด้วย "reading 'lat'") — updateThree3D จะสร้างให้เมื่อผลมาถึง */
   g3wait = !S.result;
-  if(g3wait){ diag('ยังไม่มีแปลงเผา — กลับไปโหมด 2D แล้วคลิกวางแปลงบนแผนที่ก่อน'); return; }
+  if(g3wait){ diag(tr("No burn plots yet. Go back to 2D and click on the map to place one first.", 'ยังไม่มีแปลงเผา — กลับไปโหมด 2D แล้วคลิกวางแปลงบนแผนที่ก่อน')); return; }
   g3loading = true;
-  diag('<span class="spin"></span> กำลังเริ่มฉาก 3 มิติ…');
+  diag(tr("<span class=\"spin\"></span> Starting the 3D scene…", '<span class="spin"></span> กำลังเริ่มฉาก 3 มิติ…'));
   try{
     const mod = await import('./map3d/three/index.js');
     g3 = await mod.create3D($('map3dgl'), view3());
     diag(g3.notes && g3.notes.length ? g3.notes.join('<br>') : null);
   }catch(err){
     g3 = null;
-    diag('<b>เปิดตัววาดแบบใหม่ไม่สำเร็จ</b><br>' + ((err && err.message) || '') +
-         '<br>กดปุ่ม “แบบเดิม” เพื่อใช้ตัวสำรอง');
+    diag(tr("<b>The new renderer failed to start</b><br>", '<b>เปิดตัววาดแบบใหม่ไม่สำเร็จ</b><br>') + ((err && err.message) || '') +
+         tr("<br>Press “Classic” to use the fallback renderer", '<br>กดปุ่ม “แบบเดิม” เพื่อใช้ตัวสำรอง'));
   }finally{ g3loading = false; }
 }
 
@@ -1443,8 +1455,8 @@ async function set3D(on){
     }catch(err){ maplibregl = null; }
   }
   if(on && !maplibregl){
-    $('netnote').innerHTML = '<div class="errbox">โหลดไลบรารี MapLibre GL ไม่ได้ จึงเปิดโหมด 3D ไม่ได้' +
-      (OFFLINE ? ' — น่าจะเพราะเปิดแบบ file://' : ' — ตรวจการเชื่อมต่อเครือข่าย') + '</div>';
+    $('netnote').innerHTML = tr("<div class=\"errbox\">Could not load the MapLibre GL library, so 3D mode can't open", '<div class="errbox">โหลดไลบรารี MapLibre GL ไม่ได้ จึงเปิดโหมด 3D ไม่ได้') +
+      (OFFLINE ? tr(", probably because the file was opened as file://", ' — น่าจะเพราะเปิดแบบ file://') : tr(". Check your network connection.", ' — ตรวจการเชื่อมต่อเครือข่าย')) + '</div>';
     return;
   }
   is3D = on;
@@ -1466,7 +1478,7 @@ async function set3D(on){
       m3.resize();
       m3.jumpTo({center:[c.lng,c.lat], zoom:Math.max(11, map.getZoom()-0.4)});
     }
-    diag('<span class="spin"></span> กำลังเริ่มแผนที่ 3 มิติ…');
+    diag(tr("<span class=\"spin\"></span> Starting the 3D map…", '<span class="spin"></span> กำลังเริ่มแผนที่ 3 มิติ…'));
     await3D(w3);
   }else if(m3){
     const c = m3.getCenter();
@@ -1552,9 +1564,9 @@ function setTrueScale(on){
   $('exagnote').style.display = on ? 'none' : '';
   $('trueScale').checked = on;
   $('truenote').innerHTML = on
-    ? '<b>วัดมาจริง</b> ความสูงภูมิประเทศ (AWS Terrain Tiles) · ลมรายจุดกับอากาศ (Open-Meteo) · ภาพดาวเทียม<br>' +
-      '<b>คำนวณจากแบบจำลอง</b> ความเข้มข้น PM2.5 และความหนาของควันในแนวดิ่ง (จาก σz ไม่ใช่ค่าที่วัด)<br>' +
-      'สัดส่วนความสูงตรงตามจริง 1:1 — ควันจะเตี้ยกว่าที่เคยเห็นมาก'
+    ? tr("<b>Measured</b> terrain height (AWS Terrain Tiles) · point wind and weather (Open-Meteo) · satellite imagery<br>", '<b>วัดมาจริง</b> ความสูงภูมิประเทศ (AWS Terrain Tiles) · ลมรายจุดกับอากาศ (Open-Meteo) · ภาพดาวเทียม<br>') +
+      tr("<b>Modeled</b> PM2.5 concentration and the vertical thickness of the smoke (from σz, not measured)<br>", '<b>คำนวณจากแบบจำลอง</b> ความเข้มข้น PM2.5 และความหนาของควันในแนวดิ่ง (จาก σz ไม่ใช่ค่าที่วัด)<br>') +
+      tr("Heights are true to scale, 1:1. The smoke will look much lower than before.", 'สัดส่วนความสูงตรงตามจริง 1:1 — ควันจะเตี้ยกว่าที่เคยเห็นมาก')
     : '';
   if(on){
     if(S.model !== 'puff') setModel('puff');
@@ -1588,7 +1600,7 @@ function renderTimeline(){
   if(!S.result){ setPlaying(false); return; }
   const hrs = S.result.perHour;
   const peak = Math.max(...hrs.map(h => h.max), 1);
-  $('tlmeta').textContent = hrs.length + ' ชม. · ' + (S.wxMode==='auto' && S.wx ? 'พยากรณ์จริง' : 'ค่าที่กำหนดเอง');
+  $('tlmeta').textContent = hrs.length + tr(" h · ", ' ชม. · ') + (S.wxMode==='auto' && S.wx ? tr("real forecast", 'พยากรณ์จริง') : tr("manual values", 'ค่าที่กำหนดเอง'));
   $('bPlay').disabled = hrs.length < 2;
   const t = $('tltrack');
   t.innerHTML = '';
@@ -1611,8 +1623,8 @@ function highlightHour(){
   const hrs = S.result ? S.result.perHour : [];
   const cur = hrs[S.hourIndex];
   $('tltitle').textContent = S.view === 'hour'
-    ? (cur ? cur.t.slice(11) + ' น.' : '')
-    : (S.view === 'max' ? 'พีคสูงสุดตลอดการเผา' : 'เฉลี่ย 24 ชั่วโมง');
+    ? (cur ? cur.t.slice(11) + tr("", ' น.') : '')
+    : (S.view === 'max' ? tr("Highest peak over the whole burn", 'พีคสูงสุดตลอดการเผา') : tr("24-hour average", 'เฉลี่ย 24 ชั่วโมง'));
   const track = $('tltrack');
   track.querySelectorAll('.hr').forEach(n => {
     const on = S.view === 'hour' && +n.dataset.i === S.hourIndex;
@@ -1673,21 +1685,21 @@ function download(name, text, mime){
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
 function exportCsv(){
-  if(!S.result || !S.receptors.length){ alert('ต้องมีผลจำลองและจุดอ่อนไหวก่อน'); return; }
+  if(!S.result || !S.receptors.length){ alert(tr("Run a simulation and add sensitive places first", 'ต้องมีผลจำลองและจุดอ่อนไหวก่อน')); return; }
   const r = S.result;
-  const head = ['ชื่อ','ประเภท','ละติจูด','ลองจิจูด','ระยะ_กม','PM25_ชั่วโมงที่เลือก','PM25_พีคสูงสุด','PM25_เฉลี่ย24ชม','เกินมาตรฐาน37.5'];
+  const head = [tr("name", 'ชื่อ'),tr("type", 'ประเภท'),tr("latitude", 'ละติจูด'),tr("longitude", 'ลองจิจูด'),tr("distance_km", 'ระยะ_กม'),tr("PM25_selected_hour", 'PM25_ชั่วโมงที่เลือก'),tr("PM25_peak", 'PM25_พีคสูงสุด'),tr("PM25_24h_avg", 'PM25_เฉลี่ย24ชม'),tr("over_37.5", 'เกินมาตรฐาน37.5')];
   const rows = S.receptors.map((rc,i) => {
     const [x,y] = toXY(rc.ll, S.origin);
     const BG = curBg();
     const hv = (r.recPerHour[S.hourIndex]||r.recPerHour[0])[i]+BG, mv = r.recMax[i]+BG, dv = r.recDose[i]/24+BG;
     return [rc.name.replace(/[",]/g,' '), REC_TH[rc.kind]||rc.kind, rc.ll.lat.toFixed(6), rc.ll.lng.toFixed(6),
-            (Math.hypot(x,y)/1000).toFixed(2), hv.toFixed(1), mv.toFixed(1), dv.toFixed(1), dv>=37.5?'ใช่':'ไม่'];
+            (Math.hypot(x,y)/1000).toFixed(2), hv.toFixed(1), mv.toFixed(1), dv.toFixed(1), dv>=37.5?tr("yes", 'ใช่'):tr("no", 'ไม่')];
   });
   const csv = '\uFEFF' + [head, ...rows].map(a => a.join(',')).join('\n');
   download('smoke-receptors.csv', csv, 'text/csv;charset=utf-8');
 }
 function exportGeo(){
-  if(!S.contours || !S.contours.length){ alert('ยังไม่มีเส้นชั้นความเข้มข้น'); return; }
+  if(!S.contours || !S.contours.length){ alert(tr("No concentration contours yet", 'ยังไม่มีเส้นชั้นความเข้มข้น')); return; }
   const plots = S.plots.filter(p => p.on!==false).map(p => ({
     type:'Feature', properties:{kind:'burn_plot', fuel:FUELS[p.fuel].n, rai:+(plotArea(p)/RAI).toFixed(2)},
     geometry: p.type==='point'
@@ -1720,18 +1732,20 @@ function runRecord(){
     totalEmitKg: +r.totalEmitKg.toFixed(2),
     hours: r.perHour.map(h => ({t:h.t, ws:h.ws, wdir:h.wdir, stab:h.stab, mix:h.mix,
                                 max:+h.max.toFixed(1), Fr: h.Fr == null ? null : +h.Fr.toFixed(2)})),
-    note: 'ผลจากแบบจำลอง ไม่ใช่ค่าตรวจวัด ยังไม่เคยตรวจสอบเทียบสถานีจริง ' +
-          'ช่องว่างที่รู้อยู่เกือบทั้งหมดดันผลไปทางต่ำกว่าจริง',
+    note: tr("Model output, not measurements, not yet checked against real monitoring stations. ", 'ผลจากแบบจำลอง ไม่ใช่ค่าตรวจวัด ยังไม่เคยตรวจสอบเทียบสถานีจริง ') +
+          tr("Almost every known gap pushes the results below the real values", 'ช่องว่างที่รู้อยู่เกือบทั้งหมดดันผลไปทางต่ำกว่าจริง'),
   };
 }
 function saveScenario(){
-  const data = {v:1, run: runRecord(), plots:S.plots.map(p => ({...p,
+  download('smoke-scenario.json', JSON.stringify(scenarioData(),null,1), 'application/json');
+}
+function scenarioData(){
+  return {v:1, run: runRecord(), plots:S.plots.map(p => ({...p,
       latlng: p.latlng ? [p.latlng.lat,p.latlng.lng] : null,
       latlngs: p.latlngs ? p.latlngs.map(c => [c.lat,c.lng]) : null})),
     receptors:S.receptors.map(r => ({name:r.name, kind:r.kind, src:r.src, ll:[r.ll.lat,r.ll.lng]})),
     date:S.date, time:S.time, dur:S.dur, windowExtra:S.windowExtra, bg:S.bg, bgAuto:S.bgAuto, man:S.man, wxMode:S.wxMode,
     rangeKm:S.rangeKm, res:S.res, pop:S.pop, depo:S.depo, model:S.model, wsFloor:S.wsFloor, useWind:S.useWind, trueScale:S.trueScale, efRatio:S.efRatio, center:[map.getCenter().lat,map.getCenter().lng], zoom:map.getZoom()};
-  download('smoke-scenario.json', JSON.stringify(data,null,1), 'application/json');
 }
 function loadScenario(txt){
   try{
@@ -1754,13 +1768,13 @@ function loadScenario(txt){
     S.trueScale = !!d.trueScale;
     setModel(d.model === 'puff' ? 'puff' : 'gauss');
     syncAllInputs(); redrawPlots(); redrawRecs(); syncEditor(); schedule();
-  }catch(e){ alert('ไฟล์ไม่ถูกต้อง: ' + e.message); }
+  }catch(e){ alert(tr("Invalid file: ", 'ไฟล์ไม่ถูกต้อง: ') + e.message); }
 }
 
 /* ---------------- map interaction ---------------- */
 map.on('click', e => {
   if(S.recPlacing){
-    S.receptors.push({ll:e.latlng, name:'จุดที่ ' + (S.receptors.filter(r=>r.src==='manual').length+1), kind:'manual', src:'manual'});
+    S.receptors.push({ll:e.latlng, name:tr("Place ", 'จุดที่ ') + (S.receptors.filter(r=>r.src==='manual').length+1), kind:'manual', src:'manual'});
     redrawRecs(); schedule(); return;
   }
   if(S.mode === 'point'){
@@ -1786,8 +1800,8 @@ function setMode(m){
   $('mPoint').setAttribute('aria-pressed', m==='point');
   $('mPoly').setAttribute('aria-pressed', m==='poly');
   $('mhint').textContent = m==='point'
-    ? 'คลิกบนแผนที่เพื่อเพิ่มแปลง แล้วปรับขนาดเป็นไร่ในหัวข้อถัดไป เพิ่มได้หลายแปลงเพื่อดูผลสะสม'
-    : 'คลิกไล่ตามมุมแปลงจริง (ใช้ภาพดาวเทียมจะแม่นที่สุด) ครบแล้วกดปิดรูป';
+    ? tr("Click on the map to add a plot, then set its size in rai in the next section. Add several plots to see their combined smoke.", 'คลิกบนแผนที่เพื่อเพิ่มแปลง แล้วปรับขนาดเป็นไร่ในหัวข้อถัดไป เพิ่มได้หลายแปลงเพื่อดูผลสะสม')
+    : tr("Click each corner of the real field (satellite view is the most accurate), then press Close shape", 'คลิกไล่ตามมุมแปลงจริง (ใช้ภาพดาวเทียมจะแม่นที่สุด) ครบแล้วกดปิดรูป');
   S.draft = []; $('bFinish').style.display='none'; $('bUndo').style.display='none';
   redrawPlots();
 }
@@ -1851,9 +1865,9 @@ function syncWindowNote(){
   const el = $('winnote');
   if(!el) return;
   el.textContent = after
-    ? `⚠ ${after} ชั่วโมงหลังไฟดับจะว่างเปล่า — แบบจำลองไม่เก็บควันข้ามชั่วโมง ` +
-      `ควันหายทันทีที่หยุดปล่อย ถ้าอยากเห็นควันนานขึ้นให้เพิ่ม “เผานาน”`
-    : 'ดูเท่าช่วงที่เผาพอดี — ทุกชั่วโมงมีควัน';
+    ? tr(`⚠ The ${after} hours after the fire goes out will be empty. The model doesn't carry smoke from one hour to the next. `, `⚠ ${after} ชั่วโมงหลังไฟดับจะว่างเปล่า — แบบจำลองไม่เก็บควันข้ามชั่วโมง `) +
+      tr(`Smoke disappears as soon as emission stops. To see smoke for longer, increase “Burn for”.`, `ควันหายทันทีที่หยุดปล่อย ถ้าอยากเห็นควันนานขึ้นให้เพิ่ม “เผานาน”`)
+    : tr("Watching exactly as long as the burn. Every hour has smoke.", 'ดูเท่าช่วงที่เผาพอดี — ทุกชั่วโมงมีควัน');
 }
 
 /* สถานะ DEM ใต้ปุ่มเลือกแบบจำลอง — แหล่ง · ความละเอียด · ต่างระดับ · Froude รายชั่วโมง */
@@ -1862,25 +1876,25 @@ function renderWindStatus(){
   const el = $('windstat'); if(!el) return;
   const w = S.windInfo;
   if(S.model !== 'puff' || !S.useWind || !w){ el.innerHTML = ''; return; }
-  if(w.loading){ el.innerHTML = '<div class="hint"><span class="spin"></span> กำลังดึงสนามลม…</div>'; return; }
-  if(!w.ok){ el.innerHTML = '<div class="warnbox">' + w.reason + '<br>ใช้ลมค่าเดียวต่อชั่วโมงแทน</div>'; return; }
-  if(!w.hours){ el.innerHTML = '<div class="warnbox">ไม่มีข้อมูลลมของชั่วโมงที่เลือก — ใช้ลมค่าเดียวแทน</div>'; return; }
-  el.innerHTML = '<div class="hint">สนามลมจริง ' + w.hours + '/' + w.total + ' ชั่วโมง · ลมเฉลี่ย ' +
-    fmt(w.meanWs,1) + ' ม./วิ · ต่างกันในโดเมน ' + fmt(w.spread,1) + ' ม./วิ' +
-    '<br><b>ระยะห่างจุดข้อมูล ~4 กม.</b> จับการไล่ระดับของลมระดับใหญ่ ไม่ใช่ลมในหุบ ' +
-    'ลมในหุบมาจากการที่ภูมิประเทศเบนสนามลมนี้อีกที</div>';
+  if(w.loading){ el.innerHTML = tr("<div class=\"hint\"><span class=\"spin\"></span> Fetching the wind field…</div>", '<div class="hint"><span class="spin"></span> กำลังดึงสนามลม…</div>'); return; }
+  if(!w.ok){ el.innerHTML = '<div class="warnbox">' + w.reason + tr("<br>Using one wind value per hour instead.</div>", '<br>ใช้ลมค่าเดียวต่อชั่วโมงแทน</div>'); return; }
+  if(!w.hours){ el.innerHTML = tr("<div class=\"warnbox\">No wind data for the selected hour. Using one wind value instead.</div>", '<div class="warnbox">ไม่มีข้อมูลลมของชั่วโมงที่เลือก — ใช้ลมค่าเดียวแทน</div>'); return; }
+  el.innerHTML = tr("<div class=\"hint\">Real wind field, ", '<div class="hint">สนามลมจริง ') + w.hours + '/' + w.total + tr(" hours · mean wind ", ' ชั่วโมง · ลมเฉลี่ย ') +
+    fmt(w.meanWs,1) + tr(" m/s · spread across the area ", ' ม./วิ · ต่างกันในโดเมน ') + fmt(w.spread,1) + tr(" m/s", ' ม./วิ') +
+    tr("<br><b>Data points are ~4 km apart.</b> This captures large-scale wind gradients, not valley winds. ", '<br><b>ระยะห่างจุดข้อมูล ~4 กม.</b> จับการไล่ระดับของลมระดับใหญ่ ไม่ใช่ลมในหุบ ') +
+    tr("Valley winds come from the terrain bending this wind field.</div>", 'ลมในหุบมาจากการที่ภูมิประเทศเบนสนามลมนี้อีกที</div>');
 }
 function renderDemStatus(){
   const el = $('demstat'); if(!el) return;
   if(S.model !== 'puff'){ el.innerHTML = ''; return; }
   const d = S.dem;
-  if(!d){ el.innerHTML = '<div class="hint">ยังไม่ได้ดึงข้อมูลความสูง — วางแปลงเผาเพื่อเริ่ม</div>'; return; }
-  if(d.loading){ el.innerHTML = '<div class="hint"><span class="spin"></span> กำลังดึงข้อมูลความสูงภูมิประเทศ…</div>'; return; }
-  if(!d.ok){ el.innerHTML = '<div class="warnbox">' + d.reason + '<br>คำนวณแบบพื้นราบแทน</div>'; return; }
+  if(!d){ el.innerHTML = tr("<div class=\"hint\">Terrain heights not fetched yet. Place a burn plot to start.</div>", '<div class="hint">ยังไม่ได้ดึงข้อมูลความสูง — วางแปลงเผาเพื่อเริ่ม</div>'); return; }
+  if(d.loading){ el.innerHTML = tr("<div class=\"hint\"><span class=\"spin\"></span> Fetching terrain heights…</div>", '<div class="hint"><span class="spin"></span> กำลังดึงข้อมูลความสูงภูมิประเทศ…</div>'); return; }
+  if(!d.ok){ el.innerHTML = '<div class="warnbox">' + d.reason + tr("<br>Calculating on flat ground instead.</div>", '<br>คำนวณแบบพื้นราบแทน</div>'); return; }
   const m = d.meta;
-  el.innerHTML = '<div class="hint">ความสูงจาก ' + (m.source === 'terrarium' ? 'AWS Terrain Tiles' : 'Open-Meteo') +
-    ' · ' + fmt(m.resM, 0) + ' ม./จุด · ต่างระดับในโดเมน ' + fmt(m.relief, 0) + ' ม.' +
-    (m.cached ? ' · จาก cache' : '') + '</div>' + deflectStatus();
+  el.innerHTML = tr("<div class=\"hint\">Heights from ", '<div class="hint">ความสูงจาก ') + (m.source === 'terrarium' ? 'AWS Terrain Tiles' : 'Open-Meteo') +
+    ' · ' + fmt(m.resM, 0) + tr(" m per point · elevation range in the area ", ' ม./จุด · ต่างระดับในโดเมน ') + fmt(m.relief, 0) + tr(" m", ' ม.') +
+    (m.cached ? tr(" · from cache", ' · จาก cache') : '') + '</div>' + deflectStatus();
 }
 /* บอกตรงๆ ว่าชั่วโมงไหนภูเขาเบนลม ชั่วโมงไหนลมพัดข้ามไป
    เดิมแสดงแค่ "Froude ∞, ∞, 0.02" ซึ่งไม่มีใครแปลออกว่าหมายถึงอะไร
@@ -1894,19 +1908,19 @@ function deflectStatus(){
   const blocks = r.perHour.map(h => h.Fr == null ? null : Math.max(0, Math.min(0.9, 1 - h.Fr)));
   const rows = r.perHour.map((h,i) => {
     const b = blocks[i];
-    const lbl = b == null ? '–' : b <= 0.05 ? 'ข้ามสันเขา' : Math.round(b*100) + '% เบนอ้อม';
+    const lbl = b == null ? '–' : b <= 0.05 ? tr("crosses the ridge", 'ข้ามสันเขา') : Math.round(b*100) + tr("% deflected", '% เบนอ้อม');
     return h.t.slice(11,13) + ':00 ' + lbl;
   }).join(' · ');
   const nOff = blocks.filter(b => b != null && b <= 0.05).length;
   const cur = blocks[S.hourIndex];
   let head;
   if(cur == null) head = '';
-  else if(cur <= 0.05) head = '<b>ชั่วโมงที่เลือก ลมพัดข้ามสันเขาไปตรงๆ ภูเขาไม่เบนลมเลย</b>';
-  else head = '<b>ชั่วโมงที่เลือก ภูเขาเบนลมอ้อมไป ' + Math.round(cur*100) + '%</b>';
+  else if(cur <= 0.05) head = tr("<b>In the selected hour the wind blows straight over the ridge. The mountains don't deflect it at all.</b>", '<b>ชั่วโมงที่เลือก ลมพัดข้ามสันเขาไปตรงๆ ภูเขาไม่เบนลมเลย</b>');
+  else head = tr("<b>In the selected hour the mountains deflect the wind by ", '<b>ชั่วโมงที่เลือก ภูเขาเบนลมอ้อมไป ') + Math.round(cur*100) + '%</b>';
   const why = nOff > 0
-    ? '<br>อากาศที่ผสมตัวดี (กลางวัน) ทำให้ Froude สูง แบบจำลองจึงให้ลมข้ามสันเขา ' +
-      '<b>ยังไม่คิดผลทางกลศาสตร์</b>ที่ภูเขาบังคับทางลมในทุกสภาพอากาศ ' +
-      'ตอนกลางวันโหมดภูมิประเทศจึงให้ทิศลมเหมือนโหมดพื้นราบ'
+    ? tr("<br>Well-mixed air (daytime) gives a high Froude number, so the model lets the wind cross the ridge. ", '<br>อากาศที่ผสมตัวดี (กลางวัน) ทำให้ Froude สูง แบบจำลองจึงให้ลมข้ามสันเขา ') +
+      tr("<b>It does not yet include the mechanical effect</b> of mountains steering the wind in every weather condition. ", '<b>ยังไม่คิดผลทางกลศาสตร์</b>ที่ภูเขาบังคับทางลมในทุกสภาพอากาศ ') +
+      tr("So in daytime the terrain mode gives the same wind direction as the flat mode.", 'ตอนกลางวันโหมดภูมิประเทศจึงให้ทิศลมเหมือนโหมดพื้นราบ')
     : '';
   return '<div class="' + (nOff > 0 ? 'warnbox' : 'hint') + '">' + head + why +
          '<br><span style="opacity:.75">' + rows + '</span></div>';
@@ -1919,15 +1933,15 @@ function setModel(m){
   $('mPuff').setAttribute('aria-pressed', m==='puff');
   $('puffOpts').style.display = m==='puff' ? 'block' : 'none';
   $('modelnote').textContent = m==='puff'
-    ? 'Lagrangian puff บนสนามลมที่ถูกภูมิประเทศเบน — ช้ากว่า และต้องดึงข้อมูลความสูงก่อน'
-    : 'Gaussian plume บนพื้นราบ — เร็ว ใช้เปรียบเทียบทางเลือกได้ทันที';
+    ? tr("Lagrangian puff on a wind field bent by the terrain. Slower, and terrain heights must be fetched first.", 'Lagrangian puff บนสนามลมที่ถูกภูมิประเทศเบน — ช้ากว่า และต้องดึงข้อมูลความสูงก่อน')
+    : tr("Gaussian plume on flat ground. Fast, good for comparing options right away.", 'Gaussian plume บนพื้นราบ — เร็ว ใช้เปรียบเทียบทางเลือกได้ทันที');
   // ข้อจำกัดต้องตรงกับแบบจำลองที่ใช้อยู่จริง ไม่งั้นบอกผู้ใช้ตรงข้ามกับสิ่งที่คำนวณ
   $('limitnote').innerHTML = m==='puff'
-    ? 'แบบจำลอง Lagrangian puff บนสนามลม<b>วินิจฉัยสองมิติ</b> จับได้แค่การเบนรอบภูเขา ลมไหลลงลาด และการอับลมในแอ่ง ' +
-      '<b>จับไม่ได้</b>เรื่องคลื่นภูเขา การแยกตัวของกระแสหลังสันเขา และการสะสมข้ามวันใต้อินเวอร์ชัน ' +
-      'ระดับที่ใช้ตัดสินใจเชิงนโยบายต้องใช้ CALPUFF หรือ WRF-Chem'
-    : 'แบบจำลอง Gaussian plume ระดับคัดกรอง สมมติพื้นราบและลมคงที่ในแต่ละชั่วโมง ไม่คิดการไหลลงร่องเขาตอนกลางคืน ' +
-      'ใช้เปรียบเทียบทางเลือกได้ดี แต่ไม่ใช่ค่าตรวจวัดจริง';
+    ? tr("Lagrangian puff model on a <b>2D diagnostic</b> wind field. It only captures flow bending around mountains, downslope winds and air pooling in basins. ", 'แบบจำลอง Lagrangian puff บนสนามลม<b>วินิจฉัยสองมิติ</b> จับได้แค่การเบนรอบภูเขา ลมไหลลงลาด และการอับลมในแอ่ง ') +
+      tr("<b>It does not capture</b> mountain waves, flow separation behind ridges, or multi-day build-up under an inversion. ", '<b>จับไม่ได้</b>เรื่องคลื่นภูเขา การแยกตัวของกระแสหลังสันเขา และการสะสมข้ามวันใต้อินเวอร์ชัน ') +
+      tr("Policy decisions need CALPUFF or WRF-Chem.", 'ระดับที่ใช้ตัดสินใจเชิงนโยบายต้องใช้ CALPUFF หรือ WRF-Chem')
+    : tr("Screening-level Gaussian plume model. It assumes flat ground and constant wind within each hour, and leaves out night-time drainage flow down valleys. ", 'แบบจำลอง Gaussian plume ระดับคัดกรอง สมมติพื้นราบและลมคงที่ในแต่ละชั่วโมง ไม่คิดการไหลลงร่องเขาตอนกลางคืน ') +
+      tr("Good for comparing options, but these are not real measurements.", 'ใช้เปรียบเทียบทางเลือกได้ดี แต่ไม่ใช่ค่าตรวจวัดจริง');
   // ป้าย "ดูยาว" บอกคนละเรื่องกันในสองโหมด (puff ควันอยู่ต่อ 4 ชม. · gauss หายทันที)
   syncWindowNote();
   schedule();
@@ -1938,7 +1952,7 @@ function setWxMode(m){
   $('wMan').setAttribute('aria-pressed', m==='man');
   $('wxAuto').style.display = m==='auto' ? '' : 'none';
   $('wxMan').style.display  = m==='man' ? '' : 'none';
-  if(m==='man') $('wxsrc').textContent = 'กำหนดเอง';
+  if(m==='man') $('wxsrc').textContent = tr("Manual", 'กำหนดเอง');
   schedule();
 }
 $('useWind').onchange = () => {
@@ -1951,17 +1965,17 @@ $('useWind').onchange = () => {
    ปริยาย 1 (เท่ากัน) เพราะการเปลี่ยนค่านี้ขยับผลลัพธ์ทุกตัว ควรทำหลังตรวจสอบเทียบค่าจริง */
 function renderEfRatio(){
   const r = S.efRatio;
-  $('efratiotxt').textContent = r <= 1.001 ? 'เท่ากัน' : fmt(r,1) + '×';
+  $('efratiotxt').textContent = r <= 1.001 ? tr("Same", 'เท่ากัน') : fmt(r,1) + '×';
   $('efrationote').innerHTML = r <= 1.001
-    ? 'ตอนนี้สมมติว่าเฟสคุกรุ่นกับเฟสเปลวไฟปล่อยฝุ่นต่อกิโลกรัมเท่ากัน ซึ่ง<b>ขัดกับที่วัดได้</b> · ' +
-      'Oanh et al. (2011) วัดฟางข้าวในไทย เผากระจาย 4.7 ก./กก. เผากอง 20 ก./กก. — ราว <b>4.3×</b>'
-    : 'ย้ายมวลฝุ่นไปอยู่กับควันคุกรุ่นที่ลอยต่ำและกระจายแย่กว่า <b>มวลรวมที่ปล่อยไม่เปลี่ยน</b> · ' +
-      'อ้างอิง Oanh et al. (2011) Atmos. Environ. 45:493–502 ฟางข้าวในไทย เผากอง/เผากระจาย ≈ 4.3×';
+    ? tr("Right now smoldering and flaming are assumed to emit the same dust per kilogram, which <b>contradicts measurements</b> · ", 'ตอนนี้สมมติว่าเฟสคุกรุ่นกับเฟสเปลวไฟปล่อยฝุ่นต่อกิโลกรัมเท่ากัน ซึ่ง<b>ขัดกับที่วัดได้</b> · ') +
+      tr("Oanh et al. (2011) measured rice straw in Thailand: spread burning 4.7 g/kg, pile burning 20 g/kg, about <b>4.3×</b>", 'Oanh et al. (2011) วัดฟางข้าวในไทย เผากระจาย 4.7 ก./กก. เผากอง 20 ก./กก. — ราว <b>4.3×</b>')
+    : tr("Moves dust mass into the smoldering smoke, which stays low and disperses worse. <b>The total emitted mass doesn't change</b> · ", 'ย้ายมวลฝุ่นไปอยู่กับควันคุกรุ่นที่ลอยต่ำและกระจายแย่กว่า <b>มวลรวมที่ปล่อยไม่เปลี่ยน</b> · ') +
+      tr("Source: Oanh et al. (2011) Atmos. Environ. 45:493–502, rice straw in Thailand, pile/spread burning ≈ 4.3×", 'อ้างอิง Oanh et al. (2011) Atmos. Environ. 45:493–502 ฟางข้าวในไทย เผากอง/เผากระจาย ≈ 4.3×');
 }
 $('efratio').oninput = () => { S.efRatio = +$('efratio').value; renderEfRatio(); schedule(); };
 $('wsfloor').oninput = () => {
   S.wsFloor = +$('wsfloor').value;
-  $('wsfloortxt').textContent = S.wsFloor === 0 ? 'ปิด' : fmt(S.wsFloor,1) + ' ม./วิ';
+  $('wsfloortxt').textContent = S.wsFloor === 0 ? tr("Off", 'ปิด') : fmt(S.wsFloor,1) + tr(" m/s", ' ม./วิ');
   schedule();
 };
 $('mGauss').onclick = () => setModel('gauss');
@@ -1970,20 +1984,20 @@ $('wAuto').onclick = () => setWxMode('auto');
 $('wMan').onclick  = () => setWxMode('man');
 $('bFetchWx').onclick = fetchWeather;
 $('wdir').oninput = () => { S.man.wdir = +$('wdir').value; $('wdtxt').textContent = S.man.wdir + '° ' + compass(S.man.wdir); schedule(); };
-$('wspd').oninput = () => { S.man.ws = +$('wspd').value; $('wstxt').textContent = fmt(S.man.ws,1) + ' ม./วิ'; schedule(); };
+$('wspd').oninput = () => { S.man.ws = +$('wspd').value; $('wstxt').textContent = fmt(S.man.ws,1) + tr(" m/s", ' ม./วิ'); schedule(); };
 $('stab').onchange = () => { S.man.stab = $('stab').value; schedule(); };
 $('mix').oninput  = () => { S.man.mix = +$('mix').value || 300; schedule(); };
 $('bg').oninput   = () => { S.bg = +$('bg').value || 0; refresh(); };
 $('bgAuto').onchange = () => {
   S.bgAuto = $('bgAuto').checked;
-  if(S.bgAuto && !S.bgSeries) setWxStatus('ยังไม่มีค่าพื้นหลังรายชั่วโมง — กดดึงพยากรณ์อากาศก่อน', true);
+  if(S.bgAuto && !S.bgSeries) setWxStatus(tr("No hourly background values yet. Fetch the weather forecast first.", 'ยังไม่มีค่าพื้นหลังรายชั่วโมง — กดดึงพยากรณ์อากาศก่อน'), true);
   refresh();
 };
 
 $('bOsm').onclick = fetchOsm;
 $('bManualRec').onclick = function(){
   S.recPlacing = !S.recPlacing;
-  this.textContent = S.recPlacing ? 'กำลังปักหมุด… (กดเพื่อหยุด)' : 'ปักหมุดจุดเองบนแผนที่';
+  this.textContent = S.recPlacing ? tr("Pinning… (press to stop)", 'กำลังปักหมุด… (กดเพื่อหยุด)') : tr("Pin places on the map yourself", 'ปักหมุดจุดเองบนแผนที่');
   this.style.borderColor = S.recPlacing ? 'var(--hot)' : '';
 };
 
@@ -1998,7 +2012,7 @@ function syncView(){
   $('vHour').setAttribute('aria-pressed', S.view==='hour');
   $('vMax').setAttribute('aria-pressed', S.view==='max');
   $('vDose').setAttribute('aria-pressed', S.view==='dose');
-  $('legh').textContent = S.view==='dose' ? 'PM2.5 เฉลี่ย 24 ชม. (µg/m³)' : 'PM2.5 (µg/m³)';
+  $('legh').textContent = S.view==='dose' ? tr("PM2.5 24-hour average (µg/m³)", 'PM2.5 เฉลี่ย 24 ชม. (µg/m³)') : 'PM2.5 (µg/m³)';
 }
 $('vHour').onclick = () => { S.view='hour'; syncView(); refresh(); };
 $('vMax').onclick  = () => { setPlaying(false); S.view='max';  syncView(); refresh(); };
@@ -2009,14 +2023,14 @@ $('vDose').onclick = () => { setPlaying(false); S.view='dose'; syncView(); refre
 function foldPanel(on){
   $('panel').classList.toggle('folded', on);
   $('pfold').setAttribute('aria-expanded', String(!on));
-  $('pfold').setAttribute('aria-label', on ? 'ขยายแผงสรุป' : 'ย่อแผงสรุป');
+  $('pfold').setAttribute('aria-label', on ? tr("Expand summary panel", 'ขยายแผงสรุป') : tr("Collapse summary panel", 'ย่อแผงสรุป'));
   $('pfold').textContent = on ? '▴' : '▾';
 }
 $('pfold').onclick = () => foldPanel(!$('panel').classList.contains('folded'));
 $('d3fold').onclick = () => {
   const open = $('d3bar').classList.toggle('open');
   $('d3fold').setAttribute('aria-expanded', String(open));
-  $('d3fold').textContent = open ? 'ซ่อนตั้งค่า 3D ▴' : 'ตั้งค่า 3D ▾';
+  $('d3fold').textContent = open ? tr("Hide 3D settings ▴", 'ซ่อนตั้งค่า 3D ▴') : tr("3D settings ▾", 'ตั้งค่า 3D ▾');
 };
 
 function setTab(t){
@@ -2085,7 +2099,7 @@ $('fileIn').onchange = e => {
   e.target.value = '';
 };
 $('bReset').onclick = () => {
-  if(!confirm('ล้างแปลง จุดอ่อนไหว และผลทั้งหมด?')) return;
+  if(!confirm(tr("Clear all plots, sensitive places and results?", 'ล้างแปลง จุดอ่อนไหว และผลทั้งหมด?'))) return;
   setPlaying(false);
   S.plots = []; S.receptors = []; S.draft = []; S.sel = null; S.result = null;
   clearOverlay(); clearTerrain(map); redrawPlots(); redrawRecs(); syncEditor(); renderPanel(); renderTimeline();
@@ -2099,12 +2113,12 @@ $('search').addEventListener('input', () => {
   if(q.length < 2){ $('sres').style.display='none'; return; }
   stim = setTimeout(async () => {
     const box = $('sres');
-    box.style.display='block'; box.innerHTML = '<div class="no"><span class="spin"></span> กำลังค้นหา…</div>';
+    box.style.display='block'; box.innerHTML = tr("<div class=\"no\"><span class=\"spin\"></span> Searching…</div>", '<div class="no"><span class="spin"></span> กำลังค้นหา…</div>');
     try{
       const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=6&countrycodes=th&accept-language=th&q=' + encodeURIComponent(q));
       if(!r.ok) throw new Error(r.status);
       const j = await r.json();
-      if(!j.length){ box.innerHTML = '<div class="no">ไม่พบสถานที่นี้</div>'; return; }
+      if(!j.length){ box.innerHTML = tr("<div class=\"no\">Place not found</div>", '<div class="no">ไม่พบสถานที่นี้</div>'); return; }
       box.innerHTML = '';
       j.forEach(it => {
         const d = document.createElement('div');
@@ -2112,7 +2126,7 @@ $('search').addEventListener('input', () => {
         d.onclick = () => { map.setView([+it.lat,+it.lon], 15); $('search').value=''; box.style.display='none'; };
         box.appendChild(d);
       });
-    }catch(e){ box.innerHTML = '<div class="no">ค้นหาไม่ได้ในสภาพแวดล้อมนี้</div>'; }
+    }catch(e){ box.innerHTML = tr("<div class=\"no\">Search doesn't work in this environment</div>", '<div class="no">ค้นหาไม่ได้ในสภาพแวดล้อมนี้</div>'); }
   }, 450);
 });
 $('search').addEventListener('blur', () => setTimeout(() => $('sres').style.display='none', 200));
@@ -2128,17 +2142,17 @@ $('toast').onclick = () => { $('toast').style.display = 'none'; };
 
 $('bGeoloc').onclick = () => {
   if(!navigator.geolocation || !window.isSecureContext)
-    return toast('เบราว์เซอร์นี้หาตำแหน่งไม่ได้' + (window.isSecureContext ? '' : ' — ต้องเปิดเว็บผ่าน https'));
+    return toast(tr("This browser can't find your location", 'เบราว์เซอร์นี้หาตำแหน่งไม่ได้') + (window.isSecureContext ? '' : tr(". The site must be opened over https.", ' — ต้องเปิดเว็บผ่าน https')));
   const b = $('bGeoloc'), label = b.textContent;
-  b.disabled = true; b.textContent = 'กำลังหา…';
+  b.disabled = true; b.textContent = tr("Locating…", 'กำลังหา…');
   const done = () => { b.disabled = false; b.textContent = label; };
   navigator.geolocation.getCurrentPosition(
     p => { done(); map.setView([p.coords.latitude, p.coords.longitude], 15); },
     e => {
       done();
-      toast(e.code === 1 ? 'ไม่ได้รับอนุญาตให้ใช้ตำแหน่ง — เปิดสิทธิ์ตำแหน่งให้เว็บนี้ในการตั้งค่าเบราว์เซอร์ แล้วกดอีกครั้ง'
-          : e.code === 3 ? 'หาตำแหน่งนานเกินไป — ลองกดอีกครั้ง หรือออกไปที่โล่งให้รับสัญญาณดีขึ้น'
-          : 'หาตำแหน่งไม่เจอ — ลองเปิด GPS หรือบริการตำแหน่งของเครื่อง');
+      toast(e.code === 1 ? tr("Location permission denied. Allow location for this site in your browser settings, then press again.", 'ไม่ได้รับอนุญาตให้ใช้ตำแหน่ง — เปิดสิทธิ์ตำแหน่งให้เว็บนี้ในการตั้งค่าเบราว์เซอร์ แล้วกดอีกครั้ง')
+          : e.code === 3 ? tr("Finding your location took too long. Press again, or move somewhere with a clearer sky.", 'หาตำแหน่งนานเกินไป — ลองกดอีกครั้ง หรือออกไปที่โล่งให้รับสัญญาณดีขึ้น')
+          : tr("Couldn't find your location. Turn on GPS or your device's location service.", 'หาตำแหน่งไม่เจอ — ลองเปิด GPS หรือบริการตำแหน่งของเครื่อง'));
     },
     {enableHighAccuracy:true, timeout:9000});
 };
@@ -2151,13 +2165,13 @@ function syncAllInputs(){
   $('bgAuto').checked = S.bgAuto;
   $('wdir').value = S.man.wdir; $('wspd').value = S.man.ws; $('stab').value = S.man.stab; $('mix').value = S.man.mix;
   $('wdtxt').textContent = S.man.wdir + '° ' + compass(S.man.wdir);
-  $('wstxt').textContent = fmt(S.man.ws,1) + ' ม./วิ';
+  $('wstxt').textContent = fmt(S.man.ws,1) + tr(" m/s", ' ม./วิ');
   $('useWind').checked = S.useWind;
   setTrueScale(S.trueScale);
   $('efratio').value = S.efRatio;
   renderEfRatio();
   $('wsfloor').value = S.wsFloor;
-  $('wsfloortxt').textContent = S.wsFloor === 0 ? 'ปิด' : fmt(S.wsFloor,1) + ' ม./วิ';
+  $('wsfloortxt').textContent = S.wsFloor === 0 ? tr("Off", 'ปิด') : fmt(S.wsFloor,1) + tr(" m/s", ' ม./วิ');
   setWxMode(S.wxMode);
   setModel(S.model);
 }
@@ -2171,7 +2185,19 @@ syncView();
 setTab('sum');
 renderPlotList();
 renderPanel();
-setWxStatus('ยังไม่ได้ดึงข้อมูล — วางแปลงเผาแล้วกดปุ่มด้านบน หรือสลับไปกำหนดเอง');
+setWxStatus(tr("Not fetched yet. Place a burn plot and press the button above, or switch to manual.", 'ยังไม่ได้ดึงข้อมูล — วางแปลงเผาแล้วกดปุ่มด้านบน หรือสลับไปกำหนดเอง'));
+
+/* สลับภาษาต้องโหลดหน้าใหม่ — ฝากงานที่ทำค้างไว้ใน sessionStorage ด้วยรูปแบบเดียวกับไฟล์ "บันทึกงาน"
+   แล้วเปิดกลับตอนบูต ผู้ใช้จึงไม่เสียแปลงที่วางไว้ */
+const CARRY = 'mokhwan-carry';
+$('bLang').onclick = () => {
+  try{ if(S.plots.length) sessionStorage.setItem(CARRY, JSON.stringify(scenarioData())); }catch(e){}
+  setLang(lang === 'en' ? 'th' : 'en');
+};
+try{
+  const carry = sessionStorage.getItem(CARRY);
+  if(carry){ sessionStorage.removeItem(CARRY); loadScenario(carry); }
+}catch(e){}
 
 /* ---------------- debug handle ---------------- */
 /* ES module มี scope ของตัวเอง ตัวแปรระดับบนสุดจึงไม่ขึ้น global เหมือนตอนเป็นไฟล์เดียว

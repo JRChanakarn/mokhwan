@@ -12,6 +12,7 @@
  *
  * deps ฉีดได้เพื่อทดสอบใน node: { loadImage(url) → {width,height,draw(ctx,x,y)} , fetchJson(url), makeCanvas(w,h) }
  */
+import { tr } from '../i18n.js';
 import {
   TILE, chooseZoom, tileRange, boundsAround, decodeMosaic, sampleGrid, bilinear, summarizeElev,
   groundResolution, M_LAT, mLon,
@@ -35,9 +36,9 @@ export const browserDeps = {
   loadImage: url => new Promise((res, rej) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';               // ไม่ตั้ง → getImageData โดนบล็อก (HANDOFF)
-    const t = setTimeout(() => rej(new Error('หมดเวลา')), TIMEOUT_MS);
+    const t = setTimeout(() => rej(new Error(tr("Timed out", 'หมดเวลา'))), TIMEOUT_MS);
     img.onload = () => { clearTimeout(t); res({ width: img.naturalWidth, height: img.naturalHeight, draw: (ctx, x, y) => ctx.drawImage(img, x, y) }); };
-    img.onerror = () => { clearTimeout(t); rej(new Error('โหลดภาพไม่ได้')); };
+    img.onerror = () => { clearTimeout(t); rej(new Error(tr("Could not load image", 'โหลดภาพไม่ได้'))); };
     img.src = url;
   }),
   fetchJson: async url => {
@@ -61,7 +62,7 @@ async function loadTerrariumMosaic(origin, span, deps) {
   for (let ty = tr.y0; ty <= tr.y1; ty++) for (let tx = tr.x0; tx <= tr.x1; tx++) {
     const url = TERRARIUM.replace('{z}', z).replace('{x}', tx).replace('{y}', ty);
     jobs.push(deps.loadImage(url).then(img => {
-      if (img.width !== TILE || img.height !== TILE) throw new Error(`ไทล์ผิดขนาด ${img.width}×${img.height}`);
+      if (img.width !== TILE || img.height !== TILE) throw new Error(tr(`Tile has the wrong size ${img.width}×${img.height}`, `ไทล์ผิดขนาด ${img.width}×${img.height}`));
       img.draw(ctx, (tx - tr.x0) * TILE, (ty - tr.y0) * TILE);
     }));
   }
@@ -85,7 +86,7 @@ async function loadOpenMeteoCoarse(origin, span, deps) {
                 `&longitude=${lons.slice(k, k + 100).map(v => v.toFixed(5)).join(',')}`;
     const j = await deps.fetchJson(url);
     if (!j || !Array.isArray(j.elevation) || j.elevation.length !== Math.min(100, lats.length - k))
-      throw new Error('รูปแบบคำตอบไม่ตรงที่คาด');
+      throw new Error(tr("Unexpected response format", 'รูปแบบคำตอบไม่ตรงที่คาด'));
     j.elevation.forEach((v, q) => { elev[k + q] = v; });
   }
   return { coarse: elev, nc: COARSE_N, span, source: 'open-meteo' };
@@ -130,16 +131,16 @@ export async function loadDem(origin, grid, deps = browserDeps) {
     catch (e) { errs.push(ld.name + ': ' + (e && e.message || e)); continue; }
     let elev, resM;
     try { ({ elev, resM } = toGrid(src, grid, origin, span)); }
-    catch (e) { errs.push(ld.name + ': แปลงเป็นกริดไม่ได้ (' + (e && e.message || e) + ')'); continue; }
+    catch (e) { errs.push(ld.name + tr(": could not convert to a grid (", ': แปลงเป็นกริดไม่ได้ (') + (e && e.message || e) + ')'); continue; }
     const { minZ, maxZ, relief } = summarizeElev(elev);
     if (!Number.isFinite(minZ) || minZ < -500 || maxZ > 9000) {
-      errs.push(`${ld.name}: ค่าความสูงผิดปกติ (${Number.isFinite(minZ) ? minZ.toFixed(0) : '—'}–${Number.isFinite(maxZ) ? maxZ.toFixed(0) : '—'} ม.)`);
+      errs.push(tr(`${ld.name}: unusual elevation values (${Number.isFinite(minZ) ? minZ.toFixed(0) : '—'}–${Number.isFinite(maxZ) ? maxZ.toFixed(0) : '—'} m)`, `${ld.name}: ค่าความสูงผิดปกติ (${Number.isFinite(minZ) ? minZ.toFixed(0) : '—'}–${Number.isFinite(maxZ) ? maxZ.toFixed(0) : '—'} ม.)`));
       continue;                                    // ตกไปแหล่งถัดไป และไม่ cache ของเสีย
     }
     if (!ld.cached) cacheSet(key, src);
     return { ok: true, elev, meta: { source: src.source, zoom: src.z, tiles: src.tiles, resM, minZ, maxZ, relief, cached: !!ld.cached } };
   }
-  return { ok: false, reason: 'ดึงข้อมูลความสูงไม่ได้ — ' + errs.join(' · ') };
+  return { ok: false, reason: tr("Could not fetch terrain heights: ", 'ดึงข้อมูลความสูงไม่ได้ — ') + errs.join(' · ') };
 }
 
 /** ล้าง cache — ใช้ในเทสต์ */
